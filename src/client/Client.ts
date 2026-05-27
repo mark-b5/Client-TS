@@ -4234,8 +4234,12 @@ export class Client extends GameShell {
         Model.mouseY = this.mouseY - 4;
 
         Pix2D.cls();
-        const renderRadius = this.cameraDistance >= 1000 ? 30 : 25;
-        this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius);
+        const zoomOutDistance = Math.max(0, this.cameraDistance - 600);
+        const zoomOutRatio = Math.min(1.0, zoomOutDistance / 1200.0);
+        const renderRadius = 25 + ((zoomOutRatio * 20.0) | 0);
+        const maxDrawDistance = 3500 + ((zoomOutRatio * 6500.0) | 0);
+        Model.maxDrawDistance = maxDrawDistance;
+        this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
         this.entityOverlays();
         this.coordArrow();

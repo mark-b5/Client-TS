@@ -126,6 +126,7 @@ export default class Model extends ModelSource {
     static mouseY: number = 0;
     static pickedCount: number = 0;
     static pickedEntityTypecode: Int32Array = new Int32Array(1000);
+    static maxDrawDistance: number = 3500;
 
     static init(total: number, provider: OnDemandProvider) {
         Model.meta = new Array(total);
@@ -1720,7 +1721,7 @@ export default class Model extends ModelSource {
         const radiusCosEyePitch: number = (this.radius * cosEyePitch) >> 16;
 
         const maxZ: number = midZ + radiusCosEyePitch;
-        if (maxZ <= 50 || midZ >= 3500) {
+        if (maxZ <= 50 || midZ >= Model.maxDrawDistance) {
             return;
         }
 
@@ -2110,16 +2111,18 @@ export default class Model extends ModelSource {
 
         if (type === 0) {
             Pix3D.gouraudTriangle(
-                Model.vertexScreenX[a], Model.vertexScreenX[b], Model.vertexScreenX[c],
-                Model.vertexScreenY[a], Model.vertexScreenY[b], Model.vertexScreenY[c],
-                this.faceColourA![face], this.faceColourB![face], this.faceColourC![face]
+                Model.vertexScreenX[a],
+                Model.vertexScreenX[b],
+                Model.vertexScreenX[c],
+                Model.vertexScreenY[a],
+                Model.vertexScreenY[b],
+                Model.vertexScreenY[c],
+                this.faceColourA![face],
+                this.faceColourB![face],
+                this.faceColourC![face]
             );
         } else if (type === 1) {
-            Pix3D.flatTriangle(
-                Model.vertexScreenX[a], Model.vertexScreenX[b], Model.vertexScreenX[c],
-                Model.vertexScreenY[a], Model.vertexScreenY[b], Model.vertexScreenY[c],
-                Pix3D.colourTable[this.faceColourA![face]]
-            );
+            Pix3D.flatTriangle(Model.vertexScreenX[a], Model.vertexScreenX[b], Model.vertexScreenX[c], Model.vertexScreenY[a], Model.vertexScreenY[b], Model.vertexScreenY[c], Pix3D.colourTable[this.faceColourA![face]]);
         } else if (type === 2) {
             const texturedFace: number = this.faceRenderType![face] >> 2;
             const tA: number = this.faceTextureP![texturedFace];
@@ -2127,13 +2130,24 @@ export default class Model extends ModelSource {
             const tC: number = this.faceTextureN![texturedFace];
 
             Pix3D.textureTriangle(
-                Model.vertexScreenX[a], Model.vertexScreenX[b], Model.vertexScreenX[c],
-                Model.vertexScreenY[a], Model.vertexScreenY[b], Model.vertexScreenY[c],
-                this.faceColourA![face], this.faceColourB![face], this.faceColourC![face],
-                Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                Model.vertexScreenX[a],
+                Model.vertexScreenX[b],
+                Model.vertexScreenX[c],
+                Model.vertexScreenY[a],
+                Model.vertexScreenY[b],
+                Model.vertexScreenY[c],
+                this.faceColourA![face],
+                this.faceColourB![face],
+                this.faceColourC![face],
+                Model.vertexViewSpaceX[tA],
+                Model.vertexViewSpaceY[tA],
+                Model.vertexViewSpaceZ[tA],
+                Model.vertexViewSpaceX[tB],
+                Model.vertexViewSpaceX[tC],
+                Model.vertexViewSpaceY[tB],
+                Model.vertexViewSpaceY[tC],
+                Model.vertexViewSpaceZ[tB],
+                Model.vertexViewSpaceZ[tC],
                 this.faceColour![face]
             );
         } else if (type === 3) {
@@ -2143,13 +2157,24 @@ export default class Model extends ModelSource {
             const tC: number = this.faceTextureN![texturedFace];
 
             Pix3D.textureTriangle(
-                Model.vertexScreenX[a], Model.vertexScreenX[b], Model.vertexScreenX[c],
-                Model.vertexScreenY[a], Model.vertexScreenY[b], Model.vertexScreenY[c],
-                this.faceColourA![face], this.faceColourA![face], this.faceColourA![face],
-                Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                Model.vertexScreenX[a],
+                Model.vertexScreenX[b],
+                Model.vertexScreenX[c],
+                Model.vertexScreenY[a],
+                Model.vertexScreenY[b],
+                Model.vertexScreenY[c],
+                this.faceColourA![face],
+                this.faceColourA![face],
+                this.faceColourA![face],
+                Model.vertexViewSpaceX[tA],
+                Model.vertexViewSpaceY[tA],
+                Model.vertexViewSpaceZ[tA],
+                Model.vertexViewSpaceX[tB],
+                Model.vertexViewSpaceX[tC],
+                Model.vertexViewSpaceY[tB],
+                Model.vertexViewSpaceY[tC],
+                Model.vertexViewSpaceZ[tB],
+                Model.vertexViewSpaceZ[tC],
                 this.faceColour![face]
             );
         }
@@ -2267,17 +2292,9 @@ export default class Model extends ModelSource {
             }
 
             if (type === 0) {
-                Pix3D.gouraudTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2]
-                );
+                Pix3D.gouraudTriangle(x0, x1, x2, y0, y1, y2, Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2]);
             } else if (type === 1 && this.faceColourA) {
-                Pix3D.flatTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    Pix3D.colourTable[this.faceColourA[face]]
-                );
+                Pix3D.flatTriangle(x0, x1, x2, y0, y1, y2, Pix3D.colourTable[this.faceColourA[face]]);
             } else if (type === 2) {
                 const texturedFace: number = this.faceRenderType![face] >> 2;
                 const tA: number = this.faceTextureP![texturedFace];
@@ -2285,13 +2302,24 @@ export default class Model extends ModelSource {
                 const tC: number = this.faceTextureN![texturedFace];
 
                 Pix3D.textureTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x1,
+                    x2,
+                    y0,
+                    y1,
+                    y2,
+                    Model.clippedColour[0],
+                    Model.clippedColour[1],
+                    Model.clippedColour[2],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
             } else if (type === 3) {
@@ -2301,13 +2329,24 @@ export default class Model extends ModelSource {
                 const tC: number = this.faceTextureN![texturedFace];
 
                 Pix3D.textureTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    this.faceColourA![face], this.faceColourA![face], this.faceColourA![face],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x1,
+                    x2,
+                    y0,
+                    y1,
+                    y2,
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
             }
@@ -2324,32 +2363,16 @@ export default class Model extends ModelSource {
             }
 
             if (type === 0) {
-                Pix3D.gouraudTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2]
-                );
+                Pix3D.gouraudTriangle(x0, x1, x2, y0, y1, y2, Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2]);
 
-                Pix3D.gouraudTriangle(
-                    x0, x2, Model.clippedX[3],
-                    y0, y2, Model.clippedY[3],
-                    Model.clippedColour[0], Model.clippedColour[2], Model.clippedColour[3]
-                );
+                Pix3D.gouraudTriangle(x0, x2, Model.clippedX[3], y0, y2, Model.clippedY[3], Model.clippedColour[0], Model.clippedColour[2], Model.clippedColour[3]);
             } else if (type === 1) {
                 if (this.faceColourA) {
                     const colour: number = Pix3D.colourTable[this.faceColourA[face]];
 
-                    Pix3D.flatTriangle(
-                        x0, x1, x2,
-                        y0, y1, y2,
-                        colour
-                    );
+                    Pix3D.flatTriangle(x0, x1, x2, y0, y1, y2, colour);
 
-                    Pix3D.flatTriangle(
-                        x0, x2, Model.clippedX[3],
-                        y0, y2, Model.clippedY[3],
-                        colour
-                    );
+                    Pix3D.flatTriangle(x0, x2, Model.clippedX[3], y0, y2, Model.clippedY[3], colour);
                 }
             } else if (type === 2) {
                 const texturedFace: number = this.faceRenderType![face] >> 2;
@@ -2358,24 +2381,46 @@ export default class Model extends ModelSource {
                 const tC: number = this.faceTextureN![texturedFace];
 
                 Pix3D.textureTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    Model.clippedColour[0], Model.clippedColour[1], Model.clippedColour[2],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x1,
+                    x2,
+                    y0,
+                    y1,
+                    y2,
+                    Model.clippedColour[0],
+                    Model.clippedColour[1],
+                    Model.clippedColour[2],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
 
                 Pix3D.textureTriangle(
-                    x0, x2, Model.clippedX[3],
-                    y0, y2, Model.clippedY[3],
-                    Model.clippedColour[0], Model.clippedColour[2], Model.clippedColour[3],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x2,
+                    Model.clippedX[3],
+                    y0,
+                    y2,
+                    Model.clippedY[3],
+                    Model.clippedColour[0],
+                    Model.clippedColour[2],
+                    Model.clippedColour[3],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
             } else if (type === 3) {
@@ -2385,24 +2430,46 @@ export default class Model extends ModelSource {
                 const tC: number = this.faceTextureN![texturedFace];
 
                 Pix3D.textureTriangle(
-                    x0, x1, x2,
-                    y0, y1, y2,
-                    this.faceColourA![face], this.faceColourA![face], this.faceColourA![face],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x1,
+                    x2,
+                    y0,
+                    y1,
+                    y2,
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
 
                 Pix3D.textureTriangle(
-                    x0, x2, Model.clippedX[3],
-                    y0, y2, Model.clippedY[3],
-                    this.faceColourA![face], this.faceColourA![face], this.faceColourA![face],
-                    Model.vertexViewSpaceX[tA], Model.vertexViewSpaceY[tA], Model.vertexViewSpaceZ[tA],
-                    Model.vertexViewSpaceX[tB], Model.vertexViewSpaceX[tC],
-                    Model.vertexViewSpaceY[tB], Model.vertexViewSpaceY[tC],
-                    Model.vertexViewSpaceZ[tB], Model.vertexViewSpaceZ[tC],
+                    x0,
+                    x2,
+                    Model.clippedX[3],
+                    y0,
+                    y2,
+                    Model.clippedY[3],
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    this.faceColourA![face],
+                    Model.vertexViewSpaceX[tA],
+                    Model.vertexViewSpaceY[tA],
+                    Model.vertexViewSpaceZ[tA],
+                    Model.vertexViewSpaceX[tB],
+                    Model.vertexViewSpaceX[tC],
+                    Model.vertexViewSpaceY[tB],
+                    Model.vertexViewSpaceY[tC],
+                    Model.vertexViewSpaceZ[tB],
+                    Model.vertexViewSpaceZ[tC],
                     this.faceColour![face]
                 );
             }

@@ -81,10 +81,12 @@ const TEXTURE_AVERAGE = Uint16Array.of(
 
 const OCCLUDER_LEVELS = 4;
 const BASE_RENDER_RADIUS = 25;
-const MAX_RENDER_RADIUS = 30;
+const MAX_RENDER_RADIUS = 45;
 const VIS_CENTER = MAX_RENDER_RADIUS;
 const VIS_MAP_SIZE = VIS_CENTER * 2 + 1;
 const VIS_BUILD_SIZE = VIS_MAP_SIZE + 2;
+const BASE_FAR_PLANE = 3500;
+const MAX_FAR_PLANE = 12000;
 
 export default class World {
     static lowMem: boolean = true;
@@ -121,6 +123,7 @@ export default class World {
     private static visBacking: boolean[][][][] = new TypedArray4d(8, 32, VIS_MAP_SIZE, VIS_MAP_SIZE, false);
     private static visBackingDirty: boolean[][] | null = null;
     private static renderRadius: number = BASE_RENDER_RADIUS;
+    private static farPlane: number = BASE_FAR_PLANE;
 
     static numActiveOccluders: number = 0;
     private static activeOccluders: (Occlude | null)[] = new TypedArray1d(500, null);
@@ -857,6 +860,7 @@ export default class World {
     }
 
     static resetVisCalc(pitchDistance: Int32Array, frustumStart: number, frustumEnd: number, viewportWidth: number, viewportHeight: number): void {
+        this.farPlane = MAX_FAR_PLANE;
         this.xClip = 0;
         this.yClip = 0;
         this.xClip2 = viewportWidth;
@@ -936,7 +940,7 @@ export default class World {
         const pz: number = (y * this.cameraSinX + tmp * this.cameraCosX) >> 16;
         const py: number = (y * this.cameraCosX - tmp * this.cameraSinX) >> 16;
 
-        if (pz < 50 || pz > 3500) {
+        if (pz < 50 || pz > this.farPlane) {
             return false;
         }
 
@@ -953,7 +957,7 @@ export default class World {
         World.groundZ = -1;
     }
 
-    renderAll(eyeX: number, eyeY: number, eyeZ: number, maxLevel: number, eyeYaw: number, eyePitch: number, renderRadius: number = BASE_RENDER_RADIUS): void {
+    renderAll(eyeX: number, eyeY: number, eyeZ: number, maxLevel: number, eyeYaw: number, eyePitch: number, renderRadius: number = BASE_RENDER_RADIUS, farPlane: number = BASE_FAR_PLANE): void {
         if (eyeX < 0) {
             eyeX = 0;
         } else if (eyeX >= this.maxTileX * 128) {
@@ -981,6 +985,8 @@ export default class World {
         World.gz = (eyeZ / 128) | 0;
         World.maxLevel = maxLevel;
         World.renderRadius = Math.max(BASE_RENDER_RADIUS, Math.min(MAX_RENDER_RADIUS, renderRadius | 0));
+        const radiusFarPlane = BASE_FAR_PLANE + (World.renderRadius - BASE_RENDER_RADIUS) * 350;
+        World.farPlane = Math.min(MAX_FAR_PLANE, Math.max(radiusFarPlane, farPlane | 0));
 
         World.minX = World.gx - World.renderRadius;
         if (World.minX < 0) {
