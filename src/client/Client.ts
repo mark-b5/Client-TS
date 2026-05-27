@@ -4241,6 +4241,7 @@ export class Client extends GameShell {
         Model.maxDrawDistance = maxDrawDistance;
         this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
+        this.drawLocalPlayerTileOutline();
         this.entityOverlays();
         this.coordArrow();
         this.textureRunAnims(cycle);
@@ -5009,6 +5010,78 @@ export class Client extends GameShell {
 
     private getOverlayPosEntity(entity: ClientEntity, height: number): void {
         this.getOverlayPos(entity.x, entity.z, height);
+    }
+
+    private drawLocalPlayerTileOutline(): void {
+        if (!this.localPlayer) {
+            return;
+        }
+
+        const tileX: number = this.localPlayer.routeX[0];
+        const tileZ: number = this.localPlayer.routeZ[0];
+
+        if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+            return;
+        }
+
+        const x0: number = tileX << 7;
+        const z0: number = tileZ << 7;
+        const x1: number = x0 + 128;
+        const z1: number = z0 + 128;
+
+        this.getOverlayPos(x0, z0, 0);
+        const sx0: number = this.projectX;
+        const sy0: number = this.projectY;
+        this.getOverlayPos(x1, z0, 0);
+        const sx1: number = this.projectX;
+        const sy1: number = this.projectY;
+        this.getOverlayPos(x1, z1, 0);
+        const sx2: number = this.projectX;
+        const sy2: number = this.projectY;
+        this.getOverlayPos(x0, z1, 0);
+        const sx3: number = this.projectX;
+        const sy3: number = this.projectY;
+
+        const colour = 0x00ff66;
+        if (sx0 !== -1 && sy0 !== -1 && sx1 !== -1 && sy1 !== -1) {
+            this.drawLine2D(sx0, sy0, sx1, sy1, colour);
+        }
+        if (sx1 !== -1 && sy1 !== -1 && sx2 !== -1 && sy2 !== -1) {
+            this.drawLine2D(sx1, sy1, sx2, sy2, colour);
+        }
+        if (sx2 !== -1 && sy2 !== -1 && sx3 !== -1 && sy3 !== -1) {
+            this.drawLine2D(sx2, sy2, sx3, sy3, colour);
+        }
+        if (sx3 !== -1 && sy3 !== -1 && sx0 !== -1 && sy0 !== -1) {
+            this.drawLine2D(sx3, sy3, sx0, sy0, colour);
+        }
+    }
+
+    private drawLine2D(x0: number, y0: number, x1: number, y1: number, rgb: number): void {
+        let fromX: number = x0;
+        let fromY: number = y0;
+        const dx: number = Math.abs(x1 - fromX);
+        const sx: number = fromX < x1 ? 1 : -1;
+        const dy: number = -Math.abs(y1 - fromY);
+        const sy: number = fromY < y1 ? 1 : -1;
+        let err: number = dx + dy;
+
+        while (true) {
+            Pix2D.hline(fromX, fromY, 1, rgb);
+            if (fromX === x1 && fromY === y1) {
+                break;
+            }
+
+            const e2: number = err << 1;
+            if (e2 >= dy) {
+                err += dy;
+                fromX += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                fromY += sy;
+            }
+        }
     }
 
     private getOverlayPos(x: number, z: number, height: number): void {
