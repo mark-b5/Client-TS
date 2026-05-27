@@ -11877,63 +11877,101 @@ export class Client extends GameShell {
     private drawStatusPanel(x: number, y: number, width: number, height: number, badgeText: string, value: number, fillCurrent: number, fillMax: number, fillRgb: number, valueRgb: number): void {
         const valueText: string = Math.max(0, value | 0).toString();
         const badgeRadius: number = ((height * 11) / 20) | 0;
-        const overlayWidth: number = width + badgeRadius + 2;
-        const overlayHeight: number = height;
-        const overlayY: number = y - ((height / 2) | 0);
+        // Keep the box right edge to the LEFT of the orb's right-most pixel.
+        const boxWidth: number = width + badgeRadius - 1;
+        const boxTopY: number = y - ((height / 2) | 0);
         const fontHeight: number = this.p11?.height ?? 12;
-        const panel = new PixMap(overlayWidth, overlayHeight);
+        const panel = new PixMap(boxWidth, height);
 
         panel.setPixels();
 
         // Background row.
-        Pix2D.fillRect(0, 0, overlayWidth, overlayHeight, 0x2b1f16);
-        Pix2D.drawRect(0, 0, overlayWidth, overlayHeight, 0x654b35);
-        Pix2D.hline(1, 1, overlayWidth - 2, 0xb08b69);
+        Pix2D.fillRect(0, 0, boxWidth, height, 0x2b1f16);
+        Pix2D.drawRect(0, 0, boxWidth, height, 0x654b35);
+        Pix2D.hline(1, 1, boxWidth - 2, 0xb08b69);
 
         // Use the in-game font for the value text.
         if (this.p11) {
-            const textY: number = ((overlayHeight / 2) | 0) + ((fontHeight / 2) | 0);
+            const textY: number = ((height / 2) | 0) + ((fontHeight / 2) | 0);
             this.p11.centreString(valueText, ((width / 2) | 0) - 5, textY + 1, Colour.BLACK);
             this.p11.centreString(valueText, ((width / 2) | 0) - 5, textY, valueRgb);
         }
 
-        // Badge straddles the right edge of the row.
-        const badgeX: number = width - 1;
-        this.drawStatusBadge(badgeX, 12, badgeRadius, badgeText, fillCurrent, fillMax, fillRgb);
-
-        panel.draw(x, overlayY);
+        panel.draw(x, boxTopY);
         this.areaGame?.setPixels();
+
+        // Draw orb directly on canvas so the background around it remains transparent.
+        const badgeX: number = x + width - 1;
+        const badgeY: number = boxTopY + height - 1 - badgeRadius;
+        this.drawStatusBadgeCanvas(badgeX, badgeY, badgeRadius, badgeText, fillCurrent, fillMax, fillRgb);
     }
 
-    private drawStatusBadge(x: number, y: number, radius: number, badgeText: string, current: number, max: number, fillRgb: number): void {
+    private drawStatusBadgeCanvas(x: number, y: number, radius: number, badgeText: string, current: number, max: number, fillRgb: number): void {
         const clampedMax: number = Math.max(1, max | 0);
         const clampedCurrent: number = Math.max(0, Math.min(clampedMax, current | 0));
         const percent: number = Math.max(0, Math.min(100, ((clampedCurrent * 100) / clampedMax) | 0));
         const innerRadius: number = radius - 2;
 
-        Pix2D.fillCircle(x + 1, y + 1, radius, 0x000000, 120);
-        Pix2D.fillCircle(x, y, radius, 0x2c3b40, 256);
-        Pix2D.fillCircle(x, y, radius - 1, 0x5b767f, 160);
-        Pix2D.fillCircle(x, y, innerRadius, 0x10232b, 256);
+        canvas2d.save();
+
+        canvas2d.fillStyle = 'rgba(0,0,0,0.38)';
+        canvas2d.beginPath();
+        canvas2d.arc(x + 1, y + 1, radius, 0, Math.PI * 2);
+        canvas2d.fill();
+
+        canvas2d.fillStyle = '#2c3b40';
+        canvas2d.beginPath();
+        canvas2d.arc(x, y, radius, 0, Math.PI * 2);
+        canvas2d.fill();
+
+        canvas2d.fillStyle = '#5b767f';
+        canvas2d.beginPath();
+        canvas2d.arc(x, y, radius - 1, 0, Math.PI * 2);
+        canvas2d.fill();
+
+        canvas2d.fillStyle = '#10232b';
+        canvas2d.beginPath();
+        canvas2d.arc(x, y, innerRadius, 0, Math.PI * 2);
+        canvas2d.fill();
 
         if (percent >= 100) {
-            Pix2D.fillCircle(x, y, innerRadius + 1, fillRgb, 256);
+            canvas2d.fillStyle = this.rgbToCss(fillRgb);
+            canvas2d.beginPath();
+            canvas2d.arc(x, y, innerRadius + 1, 0, Math.PI * 2);
+            canvas2d.fill();
         } else if (percent > 0) {
             const fillHeight: number = Math.max(1, ((innerRadius * 2 * percent) / 100) | 0);
             const fillTop: number = y + innerRadius - fillHeight + 1;
-            Pix2D.setClipping(x - innerRadius, fillTop, x + innerRadius + 1, y + innerRadius + 1);
-            Pix2D.fillCircle(x, y, innerRadius, fillRgb, 228);
-            Pix2D.resetClipping();
+            canvas2d.save();
+            canvas2d.beginPath();
+            canvas2d.arc(x, y, innerRadius, 0, Math.PI * 2);
+            canvas2d.clip();
+            canvas2d.fillStyle = this.rgbToCss(fillRgb);
+            canvas2d.fillRect(x - innerRadius, fillTop, innerRadius * 2, fillHeight);
+            canvas2d.restore();
         }
 
-        Pix2D.fillCircle(x - 2, y - 3, 3, 0xffffff, 68);
+        canvas2d.fillStyle = 'rgba(255,255,255,0.27)';
+        canvas2d.beginPath();
+        canvas2d.arc(x - 2, y - 3, 3, 0, Math.PI * 2);
+        canvas2d.fill();
 
-        if (this.p11) {
-            const fontHeight: number = this.p11.height;
-            const badgeTextY: number = y + ((fontHeight / 2) | 0);
-            this.p11.centreString(badgeText, x + 1, badgeTextY + 1, Colour.BLACK);
-            this.p11.centreString(badgeText, x, badgeTextY, 0xf2f7f8);
-        }
+        canvas2d.font = '11px helvetica, sans-serif';
+        canvas2d.textAlign = 'center';
+        canvas2d.textBaseline = 'middle';
+        canvas2d.fillStyle = '#000000';
+        canvas2d.fillText(badgeText, x + 1, y + 1);
+        canvas2d.fillStyle = '#f2f7f8';
+        canvas2d.fillText(badgeText, x, y);
+
+        canvas2d.restore();
+    }
+
+    private rgbToCss(rgb: number): string {
+        const r: number = (rgb >> 16) & 0xff;
+        const g: number = (rgb >> 8) & 0xff;
+        const b: number = rgb & 0xff;
+        return `rgb(${r}, ${g}, ${b})`;
     }
 
     minimapDrawArrow(dx: number, dy: number, image: Pix32 | null) {
