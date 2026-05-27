@@ -4256,6 +4256,7 @@ export class Client extends GameShell {
 
         this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
+        this.drawPriorityEntityOutline();
         this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
         this.entityOverlays();
@@ -5065,6 +5066,180 @@ export class Client extends GameShell {
         this.drawCorner2D(sx3, sy3, sx2, sy2, sx0, sy0, colour);
     }
 
+    private drawPriorityEntityOutline(): void {
+        if (this.menuNumEntries <= 0) {
+            return;
+        }
+
+        const option: number = this.menuNumEntries - 1;
+        let action: number = this.menuAction[option];
+        if (action >= MiniMenuAction._PRIORITY) {
+            action -= MiniMenuAction._PRIORITY;
+        }
+
+        let prismX0 = 0;
+        let prismZ0 = 0;
+        let prismX1 = 0;
+        let prismZ1 = 0;
+        let topHeight = 0;
+        let foundTarget = false;
+
+        let entity: ClientEntity | null = null;
+        const targetId: number = this.menuParamA[option];
+
+        if (
+            action === MiniMenuAction.OP_NPC1 ||
+            action === MiniMenuAction.OP_NPC2 ||
+            action === MiniMenuAction.OP_NPC3 ||
+            action === MiniMenuAction.OP_NPC4 ||
+            action === MiniMenuAction.OP_NPC5 ||
+            action === MiniMenuAction.OP_NPC6 ||
+            action === MiniMenuAction.TGT_NPC ||
+            action === MiniMenuAction.USEHELD_ONNPC
+        ) {
+            entity = this.npc[targetId];
+        } else if (
+            action === MiniMenuAction.OP_PLAYER1 ||
+            action === MiniMenuAction.OP_PLAYER2 ||
+            action === MiniMenuAction.OP_PLAYER3 ||
+            action === MiniMenuAction.OP_PLAYER4 ||
+            action === MiniMenuAction.OP_PLAYER5 ||
+            action === MiniMenuAction.TGT_PLAYER ||
+            action === MiniMenuAction.USEHELD_ONPLAYER
+        ) {
+            if (targetId === this.selfSlot) {
+                entity = this.localPlayer;
+            } else {
+                entity = this.players[targetId];
+            }
+        }
+
+        if (entity && entity.isReady()) {
+            const radius = Math.max(20, entity.size * 42);
+            prismX0 = entity.x - radius;
+            prismZ0 = entity.z - radius;
+            prismX1 = entity.x + radius;
+            prismZ1 = entity.z + radius;
+            topHeight = Math.max(80, entity.height);
+            foundTarget = true;
+        }
+
+        if (!foundTarget) {
+            const tileX: number = this.menuParamB[option];
+            const tileZ: number = this.menuParamC[option];
+
+            if (
+                action === MiniMenuAction.OP_LOC1 ||
+                action === MiniMenuAction.OP_LOC2 ||
+                action === MiniMenuAction.OP_LOC3 ||
+                action === MiniMenuAction.OP_LOC4 ||
+                action === MiniMenuAction.OP_LOC5 ||
+                action === MiniMenuAction.OP_LOC6 ||
+                action === MiniMenuAction.TGT_LOC ||
+                action === MiniMenuAction.USEHELD_ONLOC
+            ) {
+                const typecode: number = this.menuParamA[option];
+                const locTypeId: number = (typecode >> 14) & 0x7fff;
+                const loc = LocType.list(locTypeId);
+                prismX0 = tileX << 7;
+                prismZ0 = tileZ << 7;
+                prismX1 = prismX0 + loc.width * 128;
+                prismZ1 = prismZ0 + loc.length * 128;
+
+                let locTopHeight = 56;
+                const info: number = this.world?.typeCode2(this.minusedlevel, tileX, tileZ, typecode) ?? -1;
+                if (info >= 0) {
+                    const shape: number = info & 0x1f;
+                    const angle: number = (info >> 6) & 0x3;
+                    const locModel: Model | null = loc.getModel(shape, angle, 0, 0, 0, 0, -1);
+                    if (locModel) {
+                        locTopHeight = Math.max(locTopHeight, locModel.minY);
+                    }
+                }
+
+                topHeight = locTopHeight;
+                foundTarget = true;
+            } else if (
+                action === MiniMenuAction.OP_OBJ1 ||
+                action === MiniMenuAction.OP_OBJ2 ||
+                action === MiniMenuAction.OP_OBJ3 ||
+                action === MiniMenuAction.OP_OBJ4 ||
+                action === MiniMenuAction.OP_OBJ5 ||
+                action === MiniMenuAction.OP_OBJ6 ||
+                action === MiniMenuAction.TGT_OBJ ||
+                action === MiniMenuAction.USEHELD_ONOBJ
+            ) {
+                const centerX = (tileX << 7) + 64;
+                const centerZ = (tileZ << 7) + 64;
+                const radius = 30;
+                prismX0 = centerX - radius;
+                prismZ0 = centerZ - radius;
+                prismX1 = centerX + radius;
+                prismZ1 = centerZ + radius;
+                topHeight = 28;
+                foundTarget = true;
+            }
+        }
+
+        if (!foundTarget) {
+            return;
+        }
+
+        this.drawPrismSilhouette(prismX0, prismZ0, prismX1, prismZ1, topHeight, 0xffd54a, 192);
+    }
+
+    private drawPrismSilhouette(x0: number, z0: number, x1: number, z1: number, height: number, rgb: number, alpha: number): void {
+        const worldX = [x0, x1, x1, x0, x0, x1, x1, x0];
+        const worldZ = [z0, z0, z1, z1, z0, z0, z1, z1];
+        const worldH = [0, 0, 0, 0, height, height, height, height];
+        const points: { x: number; y: number }[] = [];
+
+        for (let i: number = 0; i < 8; i++) {
+            this.getOverlayPos(worldX[i], worldZ[i], worldH[i]);
+            if (this.projectX !== -1 && this.projectY !== -1) {
+                points.push({ x: this.projectX, y: this.projectY });
+            }
+        }
+
+        if (points.length < 3) {
+            return;
+        }
+
+        points.sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+        const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number => {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        };
+
+        const lower: { x: number; y: number }[] = [];
+        for (const p of points) {
+            while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+                lower.pop();
+            }
+            lower.push(p);
+        }
+
+        const upper: { x: number; y: number }[] = [];
+        for (let i: number = points.length - 1; i >= 0; i--) {
+            const p = points[i];
+            while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+                upper.pop();
+            }
+            upper.push(p);
+        }
+
+        upper.pop();
+        lower.pop();
+        const hull = lower.concat(upper);
+        if (hull.length < 2) {
+            return;
+        }
+
+        for (let i: number = 0; i < hull.length; i++) {
+            const next: number = (i + 1) % hull.length;
+            this.drawLine2D(hull[i].x, hull[i].y, hull[next].x, hull[next].y, rgb, alpha);
+        }
+    }
+
     private drawHoveredTileOutline(): void {
         if (World.hoverGroundX === -1 || World.hoverGroundZ === -1) {
             return;
@@ -5095,7 +5270,7 @@ export class Client extends GameShell {
         const sx3: number = this.projectX;
         const sy3: number = this.projectY;
 
-        const colour = 0x202020;
+        const colour = 0xffd54a;
         const alpha = 152;
         this.drawCorner2D(sx0, sy0, sx3, sy3, sx1, sy1, colour, alpha);
         this.drawCorner2D(sx1, sy1, sx0, sy0, sx2, sy2, colour, alpha);
