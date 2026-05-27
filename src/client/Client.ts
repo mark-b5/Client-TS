@@ -560,12 +560,18 @@ export class Client extends GameShell {
     private idkDesignButton1: Pix32 | null = null;
     private idkDesignButton2: Pix32 | null = null;
     private readonly searchParams: URLSearchParams;
+    private showLocalTrueTile: boolean = true;
+    private showHoveredTrueTile: boolean = true;
+    private showPriorityOutline: boolean = true;
+    private hoveredTileAlpha: number = 152;
+    private fKeyToSideIcon: Int32Array = new Int32Array(10);
 
     // ----
 
     constructor(nodeid: number, lowmem: boolean, members: boolean) {
         super();
         this.searchParams = new URLSearchParams(window.location.search);
+        this.fKeyToSideIcon.fill(-1);
 
         if (typeof nodeid === 'undefined' || typeof lowmem === 'undefined' || typeof members === 'undefined') {
             return;
@@ -611,6 +617,86 @@ export class Client extends GameShell {
 
         const parsed: number = Number(value);
         return Number.isSafeInteger(parsed) ? parsed : fallback;
+    }
+
+    public getOverlaySettings(): { showLocalTrueTile: boolean; showHoveredTrueTile: boolean; showPriorityOutline: boolean; hoveredTileAlpha: number } {
+        return {
+            showLocalTrueTile: this.showLocalTrueTile,
+            showHoveredTrueTile: this.showHoveredTrueTile,
+            showPriorityOutline: this.showPriorityOutline,
+            hoveredTileAlpha: this.hoveredTileAlpha
+        };
+    }
+
+    public setOverlaySettings(settings: Partial<{ showLocalTrueTile: boolean; showHoveredTrueTile: boolean; showPriorityOutline: boolean; hoveredTileAlpha: number }>): void {
+        if (typeof settings.showLocalTrueTile === 'boolean') {
+            this.showLocalTrueTile = settings.showLocalTrueTile;
+        }
+
+        if (typeof settings.showHoveredTrueTile === 'boolean') {
+            this.showHoveredTrueTile = settings.showHoveredTrueTile;
+            if (!this.showHoveredTrueTile) {
+                this.world?.clearMouseHover();
+            }
+        }
+
+        if (typeof settings.showPriorityOutline === 'boolean') {
+            this.showPriorityOutline = settings.showPriorityOutline;
+        }
+
+        if (typeof settings.hoveredTileAlpha === 'number' && Number.isFinite(settings.hoveredTileAlpha)) {
+            const alpha: number = settings.hoveredTileAlpha | 0;
+            this.hoveredTileAlpha = Math.max(0, Math.min(256, alpha));
+        }
+    }
+
+    public applyOverlayUiSettings(showLocalTrueTile: boolean, showHoveredTrueTile: boolean, showPriorityOutline: boolean, hoveredTileAlpha: number): void {
+        this.showLocalTrueTile = showLocalTrueTile;
+        this.showHoveredTrueTile = showHoveredTrueTile;
+        this.showPriorityOutline = showPriorityOutline;
+        this.hoveredTileAlpha = Math.max(0, Math.min(256, hoveredTileAlpha | 0));
+
+        if (!this.showHoveredTrueTile) {
+            this.world?.clearMouseHover();
+        }
+    }
+
+    public applyFKeyBindings(bindings: number[]): void {
+        this.fKeyToSideIcon.fill(-1);
+
+        const maxIconIndex = Math.min(this.sideIcon.length, bindings.length);
+        for (let icon: number = 0; icon < maxIconIndex; icon++) {
+            const value: number = bindings[icon] | 0;
+            if (value >= 1 && value <= 9) {
+                this.fKeyToSideIcon[value] = icon;
+            }
+        }
+    }
+
+    private handleFKeyHotkey(key: number): boolean {
+        const fKeyNumber: number = key - 1007;
+        if (fKeyNumber < 1 || fKeyNumber > 9) {
+            return false;
+        }
+
+        const icon: number = this.fKeyToSideIcon[fKeyNumber];
+        if (icon < 0 || icon >= this.sideIcon.length) {
+            return false;
+        }
+
+        if (this.sideIcon[icon] === -1) {
+            return false;
+        }
+
+        if (this.sideModalId !== -1) {
+            this.sideModalId = -1;
+            this.redrawSide = true;
+        }
+
+        this.activeIcon = icon;
+        this.redrawSide = true;
+        this.redrawIcons = true;
+        return true;
     }
 
     private drawError(): void {
@@ -2944,6 +3030,10 @@ export class Client extends GameShell {
                         return;
                     }
 
+                    if (this.handleFKeyHotkey(key)) {
+                        continue;
+                    }
+
                     if (this.mainModalId !== -1 && this.mainModalId === this.reportAbuseComId) {
                         if (key === 8 && this.reportAbuseInput.length > 0) {
                             this.reportAbuseInput = this.reportAbuseInput.substring(0, this.reportAbuseInput.length - 1);
@@ -4248,7 +4338,7 @@ export class Client extends GameShell {
             }
         }
 
-        if (!this.isMenuOpen && leftClickAction === MiniMenuAction.WALK) {
+        if (this.showHoveredTrueTile && !this.isMenuOpen && leftClickAction === MiniMenuAction.WALK) {
             this.world?.updateMouseHover(this.mouseX - 4, this.mouseY - 4);
         } else {
             this.world?.clearMouseHover();
@@ -5030,6 +5120,10 @@ export class Client extends GameShell {
     }
 
     private drawLocalPlayerTileOutline(): void {
+        if (!this.showLocalTrueTile) {
+            return;
+        }
+
         if (!this.localPlayer) {
             return;
         }
@@ -5067,6 +5161,10 @@ export class Client extends GameShell {
     }
 
     private drawPriorityEntityOutline(): void {
+        if (!this.showPriorityOutline) {
+            return;
+        }
+
         if (this.menuNumEntries <= 0) {
             return;
         }
@@ -5241,6 +5339,10 @@ export class Client extends GameShell {
     }
 
     private drawHoveredTileOutline(): void {
+        if (!this.showHoveredTrueTile) {
+            return;
+        }
+
         if (World.hoverGroundX === -1 || World.hoverGroundZ === -1) {
             return;
         }
@@ -5271,7 +5373,7 @@ export class Client extends GameShell {
         const sy3: number = this.projectY;
 
         const colour = 0xffd54a;
-        const alpha = 152;
+        const alpha = this.hoveredTileAlpha;
         this.drawCorner2D(sx0, sy0, sx3, sy3, sx1, sy1, colour, alpha);
         this.drawCorner2D(sx1, sy1, sx0, sy0, sx2, sy2, colour, alpha);
         this.drawCorner2D(sx2, sy2, sx1, sy1, sx3, sy3, colour, alpha);

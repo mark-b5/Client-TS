@@ -129,7 +129,10 @@ async function applyTerser(script: BunOutput): Promise<boolean> {
                     'message',
                     'failCount',
                     'error',
-                    'id'
+                    'id',
+                    // HTML UI bridge methods that must remain callable from templates.
+                    'applyOverlayUiSettings',
+                    'applyFKeyBindings'
                 ]
             }
         }
