@@ -11956,14 +11956,103 @@ export class Client extends GameShell {
         canvas2d.arc(x - 2, y - 3, 3, 0, Math.PI * 2);
         canvas2d.fill();
 
+        this.drawStatusBadgeIcon(x, y, badgeText);
+
+        canvas2d.restore();
+    }
+
+    private drawStatusBadgeIcon(x: number, y: number, badgeText: string): void {
+        const key: string = badgeText.toUpperCase();
+        const scale: number = 1.33;
+
+        canvas2d.save();
+        canvas2d.translate(x, y);
+        canvas2d.scale(scale, scale);
+
+        if (key === 'H') {
+            // Heart icon (hitpoints).
+            canvas2d.fillStyle = '#3b0d0d';
+            canvas2d.beginPath();
+            canvas2d.arc(-2, -2, 2.5, 0, Math.PI * 2);
+            canvas2d.arc(2, -2, 2.5, 0, Math.PI * 2);
+            canvas2d.fill();
+            canvas2d.beginPath();
+            canvas2d.moveTo(-5, -1);
+            canvas2d.lineTo(5, -1);
+            canvas2d.lineTo(0, 6);
+            canvas2d.closePath();
+            canvas2d.fill();
+
+            canvas2d.fillStyle = '#ffd4d4';
+            canvas2d.beginPath();
+            canvas2d.arc(-2.5, -2.5, 1.2, 0, Math.PI * 2);
+            canvas2d.fill();
+            canvas2d.restore();
+            return;
+        }
+
+        if (key === 'P') {
+            // Prayer icon (simple 8-point star).
+            canvas2d.fillStyle = '#0f2442';
+            canvas2d.beginPath();
+            canvas2d.moveTo(0, -6);
+            canvas2d.lineTo(2, -2);
+            canvas2d.lineTo(6, 0);
+            canvas2d.lineTo(2, 2);
+            canvas2d.lineTo(0, 6);
+            canvas2d.lineTo(-2, 2);
+            canvas2d.lineTo(-6, 0);
+            canvas2d.lineTo(-2, -2);
+            canvas2d.closePath();
+            canvas2d.fill();
+
+            canvas2d.fillStyle = '#d8e8ff';
+            canvas2d.beginPath();
+            canvas2d.moveTo(0, -4);
+            canvas2d.lineTo(1.5, -1.5);
+            canvas2d.lineTo(4, 0);
+            canvas2d.lineTo(1.5, 1.5);
+            canvas2d.lineTo(0, 4);
+            canvas2d.lineTo(-1.5, 1.5);
+            canvas2d.lineTo(-4, 0);
+            canvas2d.lineTo(-1.5, -1.5);
+            canvas2d.closePath();
+            canvas2d.fill();
+            canvas2d.restore();
+            return;
+        }
+
+        if (key === 'R') {
+            // Agility/run icon (tiny boot silhouette).
+            canvas2d.fillStyle = '#0c2b15';
+            canvas2d.beginPath();
+            canvas2d.moveTo(-4, 3);
+            canvas2d.lineTo(-1, -4);
+            canvas2d.lineTo(2, -4);
+            canvas2d.lineTo(1, -1);
+            canvas2d.lineTo(5, 0);
+            canvas2d.lineTo(5, 3);
+            canvas2d.lineTo(1, 3);
+            canvas2d.lineTo(-1, 5);
+            canvas2d.lineTo(-4, 5);
+            canvas2d.closePath();
+            canvas2d.fill();
+
+            canvas2d.fillStyle = '#c7ffd9';
+            canvas2d.fillRect(-1, -3, 2, 2);
+            canvas2d.fillRect(2, 1, 2, 1);
+            canvas2d.restore();
+            return;
+        }
+
+        // Fallback if key is unknown.
         canvas2d.font = '11px helvetica, sans-serif';
         canvas2d.textAlign = 'center';
         canvas2d.textBaseline = 'middle';
         canvas2d.fillStyle = '#000000';
-        canvas2d.fillText(badgeText, x + 1, y + 1);
+        canvas2d.fillText(key, 1, 1);
         canvas2d.fillStyle = '#f2f7f8';
-        canvas2d.fillText(badgeText, x, y);
-
+        canvas2d.fillText(key, 0, 0);
         canvas2d.restore();
     }
 
