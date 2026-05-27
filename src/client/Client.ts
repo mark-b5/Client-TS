@@ -4239,8 +4239,24 @@ export class Client extends GameShell {
         const renderRadius = 25 + ((zoomOutRatio * 20.0) | 0);
         const maxDrawDistance = 3500 + ((zoomOutRatio * 6500.0) | 0);
         Model.maxDrawDistance = maxDrawDistance;
+
+        let leftClickAction = -1;
+        if (this.menuNumEntries > 0) {
+            leftClickAction = this.menuAction[this.menuNumEntries - 1];
+            if (leftClickAction >= MiniMenuAction._PRIORITY) {
+                leftClickAction -= MiniMenuAction._PRIORITY;
+            }
+        }
+
+        if (!this.isMenuOpen && leftClickAction === MiniMenuAction.WALK) {
+            this.world?.updateMouseHover(this.mouseX - 4, this.mouseY - 4);
+        } else {
+            this.world?.clearMouseHover();
+        }
+
         this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
+        this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
         this.entityOverlays();
         this.coordArrow();
@@ -5043,21 +5059,110 @@ export class Client extends GameShell {
         const sy3: number = this.projectY;
 
         const colour = 0x00ff66;
-        if (sx0 !== -1 && sy0 !== -1 && sx1 !== -1 && sy1 !== -1) {
-            this.drawLine2D(sx0, sy0, sx1, sy1, colour);
+        this.drawCorner2D(sx0, sy0, sx3, sy3, sx1, sy1, colour);
+        this.drawCorner2D(sx1, sy1, sx0, sy0, sx2, sy2, colour);
+        this.drawCorner2D(sx2, sy2, sx1, sy1, sx3, sy3, colour);
+        this.drawCorner2D(sx3, sy3, sx2, sy2, sx0, sy0, colour);
+    }
+
+    private drawHoveredTileOutline(): void {
+        if (World.hoverGroundX === -1 || World.hoverGroundZ === -1) {
+            return;
         }
-        if (sx1 !== -1 && sy1 !== -1 && sx2 !== -1 && sy2 !== -1) {
-            this.drawLine2D(sx1, sy1, sx2, sy2, colour);
+
+        const tileX: number = World.hoverGroundX;
+        const tileZ: number = World.hoverGroundZ;
+
+        if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+            return;
         }
-        if (sx2 !== -1 && sy2 !== -1 && sx3 !== -1 && sy3 !== -1) {
-            this.drawLine2D(sx2, sy2, sx3, sy3, colour);
+
+        const x0: number = tileX << 7;
+        const z0: number = tileZ << 7;
+        const x1: number = x0 + 128;
+        const z1: number = z0 + 128;
+
+        this.getOverlayPos(x0, z0, 0);
+        const sx0: number = this.projectX;
+        const sy0: number = this.projectY;
+        this.getOverlayPos(x1, z0, 0);
+        const sx1: number = this.projectX;
+        const sy1: number = this.projectY;
+        this.getOverlayPos(x1, z1, 0);
+        const sx2: number = this.projectX;
+        const sy2: number = this.projectY;
+        this.getOverlayPos(x0, z1, 0);
+        const sx3: number = this.projectX;
+        const sy3: number = this.projectY;
+
+        const colour = 0x202020;
+        const alpha = 152;
+        this.drawCorner2D(sx0, sy0, sx3, sy3, sx1, sy1, colour, alpha);
+        this.drawCorner2D(sx1, sy1, sx0, sy0, sx2, sy2, colour, alpha);
+        this.drawCorner2D(sx2, sy2, sx1, sy1, sx3, sy3, colour, alpha);
+        this.drawCorner2D(sx3, sy3, sx2, sy2, sx0, sy0, colour, alpha);
+    }
+
+    private drawDestinationTileOutline(): void {
+        if (this.minimapFlagX === 0 && this.minimapFlagZ === 0) {
+            return;
         }
-        if (sx3 !== -1 && sy3 !== -1 && sx0 !== -1 && sy0 !== -1) {
-            this.drawLine2D(sx3, sy3, sx0, sy0, colour);
+
+        const tileX: number = this.minimapFlagX;
+        const tileZ: number = this.minimapFlagZ;
+
+        if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+            return;
+        }
+
+        const x0: number = tileX << 7;
+        const z0: number = tileZ << 7;
+        const x1: number = x0 + 128;
+        const z1: number = z0 + 128;
+
+        this.getOverlayPos(x0, z0, 0);
+        const sx0: number = this.projectX;
+        const sy0: number = this.projectY;
+        this.getOverlayPos(x1, z0, 0);
+        const sx1: number = this.projectX;
+        const sy1: number = this.projectY;
+        this.getOverlayPos(x1, z1, 0);
+        const sx2: number = this.projectX;
+        const sy2: number = this.projectY;
+        this.getOverlayPos(x0, z1, 0);
+        const sx3: number = this.projectX;
+        const sy3: number = this.projectY;
+
+        const colour = 0xffb300;
+        this.drawCorner2D(sx0, sy0, sx3, sy3, sx1, sy1, colour);
+        this.drawCorner2D(sx1, sy1, sx0, sy0, sx2, sy2, colour);
+        this.drawCorner2D(sx2, sy2, sx1, sy1, sx3, sy3, colour);
+        this.drawCorner2D(sx3, sy3, sx2, sy2, sx0, sy0, colour);
+    }
+
+    private drawCorner2D(cornerX: number, cornerY: number, prevX: number, prevY: number, nextX: number, nextY: number, rgb: number, alpha: number = 256): void {
+        if (cornerX === -1 || cornerY === -1) {
+            return;
+        }
+
+        // Draw short segments from the corner towards both adjoining edges.
+        const cornerFracNum = 1;
+        const cornerFracDen = 4;
+
+        if (prevX !== -1 && prevY !== -1) {
+            const px = (cornerX + ((prevX - cornerX) * cornerFracNum) / cornerFracDen) | 0;
+            const py = (cornerY + ((prevY - cornerY) * cornerFracNum) / cornerFracDen) | 0;
+            this.drawLine2D(cornerX, cornerY, px, py, rgb, alpha);
+        }
+
+        if (nextX !== -1 && nextY !== -1) {
+            const nx = (cornerX + ((nextX - cornerX) * cornerFracNum) / cornerFracDen) | 0;
+            const ny = (cornerY + ((nextY - cornerY) * cornerFracNum) / cornerFracDen) | 0;
+            this.drawLine2D(cornerX, cornerY, nx, ny, rgb, alpha);
         }
     }
 
-    private drawLine2D(x0: number, y0: number, x1: number, y1: number, rgb: number): void {
+    private drawLine2D(x0: number, y0: number, x1: number, y1: number, rgb: number, alpha: number = 256): void {
         let fromX: number = x0;
         let fromY: number = y0;
         const dx: number = Math.abs(x1 - fromX);
@@ -5067,7 +5172,11 @@ export class Client extends GameShell {
         let err: number = dx + dy;
 
         while (true) {
-            Pix2D.hline(fromX, fromY, 1, rgb);
+            if (alpha >= 256) {
+                Pix2D.hline(fromX, fromY, 1, rgb);
+            } else {
+                Pix2D.hlineTrans(fromX, fromY, 1, rgb, alpha);
+            }
             if (fromX === x1 && fromY === y1) {
                 break;
             }

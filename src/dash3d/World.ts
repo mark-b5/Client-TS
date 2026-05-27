@@ -119,6 +119,11 @@ export default class World {
     static clickY: number = 0;
     static groundX: number = -1;
     static groundZ: number = -1;
+    private static hoverPick: boolean = false;
+    private static hoverMouseX: number = 0;
+    private static hoverMouseY: number = 0;
+    static hoverGroundX: number = -1;
+    static hoverGroundZ: number = -1;
 
     private static visBacking: boolean[][][][] = new TypedArray4d(8, 32, VIS_MAP_SIZE, VIS_MAP_SIZE, false);
     private static visBackingDirty: boolean[][] | null = null;
@@ -955,6 +960,20 @@ export default class World {
         World.clickY = mouseY;
         World.groundX = -1;
         World.groundZ = -1;
+    }
+
+    updateMouseHover(mouseX: number, mouseY: number): void {
+        World.hoverPick = true;
+        World.hoverMouseX = mouseX;
+        World.hoverMouseY = mouseY;
+        World.hoverGroundX = -1;
+        World.hoverGroundZ = -1;
+    }
+
+    clearMouseHover(): void {
+        World.hoverPick = false;
+        World.hoverGroundX = -1;
+        World.hoverGroundZ = -1;
     }
 
     renderAll(eyeX: number, eyeY: number, eyeZ: number, maxLevel: number, eyeYaw: number, eyePitch: number, renderRadius: number = BASE_RENDER_RADIUS, farPlane: number = BASE_FAR_PLANE): void {
@@ -1998,6 +2017,10 @@ export default class World {
                 World.groundX = tileX;
                 World.groundZ = tileZ;
             }
+            if (World.hoverPick && this.insideTriangle(World.hoverMouseX, World.hoverMouseY, pz1, py3, px1, py1, px3, pz0)) {
+                World.hoverGroundX = tileX;
+                World.hoverGroundZ = tileZ;
+            }
 
             if (ground.texture !== -1) {
                 if (!World.lowMem) {
@@ -2023,6 +2046,10 @@ export default class World {
             if (World.click && this.insideTriangle(World.clickX, World.clickY, py0, px1, py3, px0, pz0, px3)) {
                 World.groundX = tileX;
                 World.groundZ = tileZ;
+            }
+            if (World.hoverPick && this.insideTriangle(World.hoverMouseX, World.hoverMouseY, py0, px1, py3, px0, pz0, px3)) {
+                World.hoverGroundX = tileX;
+                World.hoverGroundZ = tileZ;
             }
 
             if (ground.texture !== -1) {
@@ -2092,6 +2119,10 @@ export default class World {
                 if (World.click && this.insideTriangle(World.clickX, World.clickY, y0, y1, y2, x0, x1, x2)) {
                     World.groundX = tileX;
                     World.groundZ = tileZ;
+                }
+                if (World.hoverPick && this.insideTriangle(World.hoverMouseX, World.hoverMouseY, y0, y1, y2, x0, x1, x2)) {
+                    World.hoverGroundX = tileX;
+                    World.hoverGroundZ = tileZ;
                 }
 
                 if (ground.faceTexture && ground.faceTexture[v] !== -1) {
