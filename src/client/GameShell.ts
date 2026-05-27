@@ -51,11 +51,11 @@ export default abstract class GameShell {
         e.preventDefault();
     };
 
-    protected async maininit() { }
-    protected mainquit() { }
-    protected async mainloop() { }
-    protected async mainredraw() { }
-    protected refresh() { }
+    protected async maininit() {}
+    protected mainquit() {}
+    protected async mainloop() {}
+    protected async mainredraw() {}
+    protected refresh() {}
 
     constructor(resizetoFit: boolean = false) {
         canvas.tabIndex = -1;
@@ -96,6 +96,7 @@ export default abstract class GameShell {
 
         canvas.onmousedown = this.onmousedown.bind(this);
         canvas.onpointerdown = this.onpointerdown.bind(this);
+        canvas.onwheel = this.onwheel.bind(this);
         canvas.onmouseup = this.onmouseup.bind(this);
         canvas.onpointerup = this.onpointerup.bind(this);
         canvas.onpointerenter = this.onpointerenter.bind(this);
@@ -239,6 +240,7 @@ export default abstract class GameShell {
         canvas.onkeyup = null;
         canvas.onmousedown = null;
         canvas.onpointerdown = null;
+        canvas.onwheel = null;
         canvas.onmouseup = null;
         canvas.onpointerup = null;
         canvas.onpointerenter = null;
@@ -343,8 +345,7 @@ export default abstract class GameShell {
         this.pointerDown(this.absMouseX, this.absMouseY, e);
     }
 
-    protected pointerDown(_x: number, _y: number, _e: PointerEvent) {
-    }
+    protected pointerDown(_x: number, _y: number, _e: PointerEvent) {}
 
     private onmouseup(e: MouseEvent) {
         this.getMousePos(e);
@@ -367,8 +368,7 @@ export default abstract class GameShell {
         this.pointerUp(this.absMouseX, this.absMouseY, e);
     }
 
-    protected pointerUp(_x: number, _y: number, _e: PointerEvent) {
-    }
+    protected pointerUp(_x: number, _y: number, _e: PointerEvent) {}
 
     private onpointerenter(e: PointerEvent) {
         if (e.clientX < 0 || e.clientY < 0) {
@@ -411,17 +411,25 @@ export default abstract class GameShell {
         this.pointerMove(this.absMouseX, this.absMouseY, e);
     }
 
+    private onwheel(e: WheelEvent) {
+        if (e.clientX >= 0 && e.clientY >= 0) {
+            this.getMousePos(e);
+        }
+
+        this.wheel(e);
+    }
+
     protected pointerMove(x: number, y: number, e: PointerEvent) {
         this.idleTimer = performance.now();
         this.mouseX = x;
         this.mouseY = y;
     }
 
-    protected windowMouseUp(e: MouseEvent) {
-    }
+    protected wheel(_e: WheelEvent) {}
 
-    protected windowMouseMove(e: MouseEvent) {
-    }
+    protected windowMouseUp(e: MouseEvent) {}
+
+    protected windowMouseMove(e: MouseEvent) {}
 
     private onkeydown(e: KeyboardEvent) {
         this.idleTimer = performance.now();
@@ -455,7 +463,7 @@ export default abstract class GameShell {
             ch = 4;
         } else if (keyCode.code === 17) {
             ch = 5;
-        } else  if (keyCode.code === 8 || keyCode.code === 127) {
+        } else if (keyCode.code === 8 || keyCode.code === 127) {
             ch = 8;
         } else if (keyCode.code === 9) {
             ch = 9;
@@ -515,7 +523,7 @@ export default abstract class GameShell {
             ch = 4;
         } else if (keyCode.code === 17) {
             ch = 5;
-        } else  if (keyCode.code === 8 || keyCode.code === 127) {
+        } else if (keyCode.code === 8 || keyCode.code === 127) {
             ch = 8;
         } else if (keyCode.code === 9) {
             ch = 9;
@@ -563,11 +571,7 @@ export default abstract class GameShell {
     }
 
     private get isTouchDevice() {
-        return (
-            this.hasTouchEvents ||
-            navigator.maxTouchPoints > 0 ||
-            (navigator as any).msMaxTouchPoints > 0
-        );
+        return this.hasTouchEvents || navigator.maxTouchPoints > 0 || (navigator as any).msMaxTouchPoints > 0;
     }
 
     protected get isMobile(): boolean {

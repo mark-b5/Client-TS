@@ -18,7 +18,7 @@ const define = {
 type BunOutput = {
     source: string;
     sourcemap: string;
-}
+};
 
 async function bunBuild(entry: string, external: string[] = [], minify = true, drop: string[] = []): Promise<BunOutput> {
     const build = await Bun.build({
@@ -27,7 +27,7 @@ async function bunBuild(entry: string, external: string[] = [], minify = true, d
         define,
         external,
         minify,
-        drop,
+        drop
     });
 
     if (!build.success) {
@@ -142,20 +142,25 @@ async function applyTerser(script: BunOutput): Promise<boolean> {
 
 // ----
 
-if (!fs.existsSync('out')) {
-    fs.mkdirSync('out');
+const outputDirs = ['out'];
+const engineClientDir = path.resolve('..', 'Engine-TS', 'public', 'client');
+
+if (fs.existsSync(engineClientDir)) {
+    outputDirs.push(engineClientDir);
 }
 
-fs.copyFileSync('src/3rdparty/tinymidipcm/tinymidipcm.wasm', 'out/tinymidipcm.wasm');
+for (const dir of outputDirs) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+
+    fs.copyFileSync('src/3rdparty/tinymidipcm/tinymidipcm.wasm', path.join(dir, 'tinymidipcm.wasm'));
+}
 
 const args = process.argv.slice(2);
 const prod = args[0] !== 'dev';
 
-const entrypoints = [
-    'src/client/Client.ts',
-    'src/mapview/MapView.ts',
-    'src/io/OnDemandWorker.ts'
-];
+const entrypoints = ['src/client/Client.ts', 'src/mapview/MapView.ts', 'src/io/OnDemandWorker.ts'];
 
 for (const file of entrypoints) {
     const output = path.basename(file).replace('.ts', '.js').toLowerCase();
@@ -166,7 +171,9 @@ for (const file of entrypoints) {
             await applyTerser(script);
         }
 
-        fs.writeFileSync(`out/${output}`, script.source);
-        fs.writeFileSync(`out/${output}.map`, script.sourcemap);
+        for (const dir of outputDirs) {
+            fs.writeFileSync(path.join(dir, output), script.source);
+            fs.writeFileSync(path.join(dir, `${output}.map`), script.sourcemap);
+        }
     }
 }

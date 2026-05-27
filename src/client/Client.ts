@@ -114,8 +114,10 @@ export class Client extends GameShell {
 
     static loopCycle: number = 0;
     static drawCycle: number = 0;
+    static readonly CAMERA_PITCH_MIN: number = 0;
+    static readonly CAMERA_PITCH_MAX: number = 512;
 
-    static CHARSET: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!\"£$%^&*()-_=+[{]};:'@#~,<.>/?\\| ";
+    static CHARSET: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"£$%^&*()-_=+[{]};:\'@#~,<.>/?\\| ';
 
     static readbit = new Int32Array(32);
     static levelExperience: number[] = [];
@@ -350,6 +352,7 @@ export class Client extends GameShell {
     private orbitCameraPitchVelocity: number = 0;
     private orbitCameraX: number = 0;
     private orbitCameraZ: number = 0;
+    private cameraDistance: number = 600;
     private sendCameraDelay: number = 0;
     private sendCamera: boolean = false;
     private cameraPitchClamp: number = 0;
@@ -455,13 +458,7 @@ export class Client extends GameShell {
     private overMainComId: number = 0;
     private overSideComId: number = 0;
     private activeIcon: number = 3;
-    private sideIcon: number[] = [
-        -1, -1, -1,
-        -1, -1, -1,
-        -1, -1, -1,
-        -1, -1, -1,
-        -1, -1, -1
-    ];
+    private sideIcon: number[] = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
     private tutComId: number = -1;
     private tutComMessage: string | null = null;
     private tutFlashIcon: number = -1;
@@ -1744,12 +1741,7 @@ export class Client extends GameShell {
                 this.in.pos = 0;
 
                 this.loginSeed = this.in.g8();
-                const seed: Int32Array = new Int32Array([
-                    Math.floor(Math.random() * 99999999), 
-                    Math.floor(Math.random() * 99999999),
-                    Number(this.loginSeed >> 32n),
-                    Number(this.loginSeed & BigInt(0xffffffff))
-                ]);
+                const seed: Int32Array = new Int32Array([Math.floor(Math.random() * 99999999), Math.floor(Math.random() * 99999999), Number(this.loginSeed >> 32n), Number(this.loginSeed & BigInt(0xffffffff))]);
 
                 this.out.pos = 0;
                 this.out.p1(10);
@@ -3259,10 +3251,10 @@ export class Client extends GameShell {
         this.orbitCameraYaw = ((this.orbitCameraYaw + this.orbitCameraYawVelocity / 2) | 0) & 0x7ff;
         this.orbitCameraPitch += (this.orbitCameraPitchVelocity / 2) | 0;
 
-        if (this.orbitCameraPitch < 128) {
-            this.orbitCameraPitch = 128;
-        } else if (this.orbitCameraPitch > 383) {
-            this.orbitCameraPitch = 383;
+        if (this.orbitCameraPitch < Client.CAMERA_PITCH_MIN) {
+            this.orbitCameraPitch = Client.CAMERA_PITCH_MIN;
+        } else if (this.orbitCameraPitch > Client.CAMERA_PITCH_MAX) {
+            this.orbitCameraPitch = Client.CAMERA_PITCH_MAX;
         }
 
         const orbitTileX: number = this.orbitCameraX >> 7;
@@ -3361,10 +3353,10 @@ export class Client extends GameShell {
         let pitch: number = ((Math.atan2(dy, distance) * 325.949) | 0) & 0x7ff;
         const yaw: number = ((Math.atan2(dx, dz) * -325.949) | 0) & 0x7ff;
 
-        if (pitch < 128) {
-            pitch = 128;
-        } else if (pitch > 383) {
-            pitch = 383;
+        if (pitch < Client.CAMERA_PITCH_MIN) {
+            pitch = Client.CAMERA_PITCH_MIN;
+        } else if (pitch > Client.CAMERA_PITCH_MAX) {
+            pitch = Client.CAMERA_PITCH_MAX;
         }
 
         if (this.camPitch < pitch) {
@@ -4191,7 +4183,7 @@ export class Client extends GameShell {
             const yaw: number = (this.orbitCameraYaw + this.macroCameraAngle) & 0x7ff;
 
             if (this.localPlayer) {
-                this.camFollow(pitch, yaw, this.orbitCameraX, this.getAvH(this.localPlayer.x, this.localPlayer.z, this.minusedlevel) - 50, this.orbitCameraZ, pitch * 3 + 600);
+                this.camFollow(pitch, yaw, this.orbitCameraX, this.getAvH(this.localPlayer.x, this.localPlayer.z, this.minusedlevel) - 50, this.orbitCameraZ, pitch * 3 + this.cameraDistance);
             }
         }
 
@@ -4225,12 +4217,12 @@ export class Client extends GameShell {
             } else if (axis === 4) {
                 this.camPitch += jitter;
 
-                if (this.camPitch < 128) {
-                    this.camPitch = 128;
+                if (this.camPitch < Client.CAMERA_PITCH_MIN) {
+                    this.camPitch = Client.CAMERA_PITCH_MIN;
                 }
 
-                if (this.camPitch > 383) {
-                    this.camPitch = 383;
+                if (this.camPitch > Client.CAMERA_PITCH_MAX) {
+                    this.camPitch = Client.CAMERA_PITCH_MAX;
                 }
             }
         }
@@ -4242,7 +4234,8 @@ export class Client extends GameShell {
         Model.mouseY = this.mouseY - 4;
 
         Pix2D.cls();
-        this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch);
+        const renderRadius = this.cameraDistance >= 1000 ? 30 : 25;
+        this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius);
         this.world?.removeSprites();
         this.entityOverlays();
         this.coordArrow();
@@ -6338,10 +6331,10 @@ export class Client extends GameShell {
                     this.camPitch = ((Math.atan2(deltaY, distance) * 325.949) | 0) & 0x7ff;
                     this.camYaw = ((Math.atan2(deltaX, deltaZ) * -325.949) | 0) & 0x7ff;
 
-                    if (this.camPitch < 128) {
-                        this.camPitch = 128;
-                    } else if (this.camPitch > 383) {
-                        this.camPitch = 383;
+                    if (this.camPitch < Client.CAMERA_PITCH_MIN) {
+                        this.camPitch = Client.CAMERA_PITCH_MIN;
+                    } else if (this.camPitch > Client.CAMERA_PITCH_MAX) {
+                        this.camPitch = Client.CAMERA_PITCH_MAX;
                     }
                 }
 
@@ -8338,9 +8331,18 @@ export class Client extends GameShell {
                 const action: number = this.menuAction[this.menuNumEntries - 1];
 
                 if (
-                    action == MiniMenuAction.INV_BUTTON1 || action == MiniMenuAction.INV_BUTTON2 || action == MiniMenuAction.INV_BUTTON3 || action == MiniMenuAction.INV_BUTTON4 || action == MiniMenuAction.INV_BUTTON5 ||
-                    action == MiniMenuAction.OP_HELD1 || action == MiniMenuAction.OP_HELD2 || action == MiniMenuAction.OP_HELD3 || action == MiniMenuAction.OP_HELD4 || action == MiniMenuAction.OP_HELD5 ||
-                    action == MiniMenuAction.USEHELD_START || action === MiniMenuAction.OP_HELD6
+                    action == MiniMenuAction.INV_BUTTON1 ||
+                    action == MiniMenuAction.INV_BUTTON2 ||
+                    action == MiniMenuAction.INV_BUTTON3 ||
+                    action == MiniMenuAction.INV_BUTTON4 ||
+                    action == MiniMenuAction.INV_BUTTON5 ||
+                    action == MiniMenuAction.OP_HELD1 ||
+                    action == MiniMenuAction.OP_HELD2 ||
+                    action == MiniMenuAction.OP_HELD3 ||
+                    action == MiniMenuAction.OP_HELD4 ||
+                    action == MiniMenuAction.OP_HELD5 ||
+                    action == MiniMenuAction.USEHELD_START ||
+                    action === MiniMenuAction.OP_HELD6
                 ) {
                     const slot: number = this.menuParamB[this.menuNumEntries - 1];
                     const comId: number = this.menuParamC[this.menuNumEntries - 1];
@@ -11382,8 +11384,8 @@ export class Client extends GameShell {
         }
 
         if (this.minimapFlagX !== 0) {
-            anchorX = ((this.minimapFlagX * 4) + 2) - ((this.localPlayer.x / 32) | 0);
-            anchorY = ((this.minimapFlagZ * 4) + 2) - ((this.localPlayer.z / 32) | 0);
+            anchorX = this.minimapFlagX * 4 + 2 - ((this.localPlayer.x / 32) | 0);
+            anchorY = this.minimapFlagZ * 4 + 2 - ((this.localPlayer.z / 32) | 0);
             this.minimapDrawDot(anchorY, this.mapmarker1, anchorX);
         }
 
@@ -11628,6 +11630,26 @@ export class Client extends GameShell {
     private ny: number = 0;
     private dragging: boolean = false;
     private panning: boolean = false;
+    private middleRotating: boolean = false;
+    private middleLastX: number = 0;
+    private middleLastY: number = 0;
+
+    override mouseDown(x: number, y: number, e: MouseEvent) {
+        if (e.button === 1 && this.ingame && !this.isGameObscured()) {
+            this.idleTimer = performance.now();
+            this.middleRotating = true;
+            this.middleLastX = x;
+            this.middleLastY = y;
+            this.mouseX = x;
+            this.mouseY = y;
+            this.mouseButton = 0;
+            this.nextMouseClickButton = 0;
+            e.preventDefault();
+            return;
+        }
+
+        super.mouseDown(x, y, e);
+    }
 
     override pointerDown(x: number, y: number, e: PointerEvent) {
         if (MobileKeyboard.isWithinCanvasKeyboard(x, y) && !this.exceedsGrabThreshold(20)) {
@@ -11658,6 +11680,16 @@ export class Client extends GameShell {
     }
 
     override mouseUp(x: number, y: number, e: MouseEvent) {
+        if (e.button === 1 && this.middleRotating) {
+            this.middleRotating = false;
+            this.idleTimer = performance.now();
+            this.mouseX = x;
+            this.mouseY = y;
+            this.mouseButton = 0;
+            this.nextMouseClickButton = 0;
+            return;
+        }
+
         this.idleTimer = performance.now();
         this.mouseButton = 0;
 
@@ -11781,6 +11813,24 @@ export class Client extends GameShell {
             this.idleTimer = performance.now();
             this.mouseX = x;
             this.mouseY = y;
+
+            if (this.middleRotating) {
+                const dx = x - this.middleLastX;
+                const dy = y - this.middleLastY;
+
+                this.middleLastX = x;
+                this.middleLastY = y;
+
+                this.orbitCameraYaw = (this.orbitCameraYaw - dx * 2) & 0x7ff;
+                this.orbitCameraPitch += dy * 2;
+                if (this.orbitCameraPitch < Client.CAMERA_PITCH_MIN) {
+                    this.orbitCameraPitch = Client.CAMERA_PITCH_MIN;
+                } else if (this.orbitCameraPitch > Client.CAMERA_PITCH_MAX) {
+                    this.orbitCameraPitch = Client.CAMERA_PITCH_MAX;
+                }
+
+                this.redrawFrame = true;
+            }
         } else {
             // custom: touchscreen support
             this.idleTimer = performance.now();
@@ -11832,6 +11882,29 @@ export class Client extends GameShell {
             this.mx = this.nx;
             this.my = this.ny;
         }
+    }
+
+    override windowMouseUp(e: MouseEvent) {
+        if (e.button === 1) {
+            this.middleRotating = false;
+        }
+    }
+
+    override wheel(e: WheelEvent) {
+        this.idleTimer = performance.now();
+        e.preventDefault();
+
+        if (!this.localPlayer) {
+            return;
+        }
+
+        if (e.deltaY < 0) {
+            this.cameraDistance = Math.max(150, this.cameraDistance - 100);
+        } else if (e.deltaY > 0) {
+            this.cameraDistance = Math.min(1800, this.cameraDistance + 100);
+        }
+
+        this.redrawFrame = true;
     }
 
     private exceedsGrabThreshold(size: number) {

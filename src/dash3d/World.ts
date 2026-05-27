@@ -80,6 +80,11 @@ const TEXTURE_AVERAGE = Uint16Array.of(
 );
 
 const OCCLUDER_LEVELS = 4;
+const BASE_RENDER_RADIUS = 25;
+const MAX_RENDER_RADIUS = 30;
+const VIS_CENTER = MAX_RENDER_RADIUS;
+const VIS_MAP_SIZE = VIS_CENTER * 2 + 1;
+const VIS_BUILD_SIZE = VIS_MAP_SIZE + 2;
 
 export default class World {
     static lowMem: boolean = true;
@@ -113,8 +118,9 @@ export default class World {
     static groundX: number = -1;
     static groundZ: number = -1;
 
-    private static visBacking: boolean[][][][] = new TypedArray4d(8, 32, 51, 51, false);
+    private static visBacking: boolean[][][][] = new TypedArray4d(8, 32, VIS_MAP_SIZE, VIS_MAP_SIZE, false);
     private static visBackingDirty: boolean[][] | null = null;
+    private static renderRadius: number = BASE_RENDER_RADIUS;
 
     static numActiveOccluders: number = 0;
     private static activeOccluders: (Occlude | null)[] = new TypedArray1d(500, null);
@@ -238,13 +244,26 @@ export default class World {
     }
 
     setGround(
-        level: number, x: number, z: number,
-        shape: number, rotation: number,
+        level: number,
+        x: number,
+        z: number,
+        shape: number,
+        rotation: number,
         texture: number,
-        heightSW: number, heightSE: number, heightNE: number, heightNW: number,
-        colourSW: number, colourSE: number, colourNE: number, colourNW: number,
-        colour2SW: number, colour2SE: number, colour2NE: number, colour2NW: number,
-        overlay: number, underlay: number
+        heightSW: number,
+        heightSE: number,
+        heightNE: number,
+        heightNW: number,
+        colourSW: number,
+        colourSE: number,
+        colourNE: number,
+        colourNW: number,
+        colour2SW: number,
+        colour2SE: number,
+        colour2NE: number,
+        colour2NW: number,
+        overlay: number,
+        underlay: number
     ): void {
         if (shape === TerrainOverlayShape.PLAIN) {
             for (let l: number = level; l >= 0; l--) {
@@ -255,12 +274,7 @@ export default class World {
 
             const tile: Square | null = this.squares[level][x][z];
             if (tile) {
-                tile.quickGround = new QuickGround(
-                    colourSW, colourSE, colourNE, colourNW,
-                    -1,
-                    overlay,
-                    false
-                );
+                tile.quickGround = new QuickGround(colourSW, colourSE, colourNE, colourNW, -1, overlay, false);
             }
         } else if (shape === TerrainOverlayShape.DIAGONAL) {
             for (let l: number = level; l >= 0; l--) {
@@ -271,12 +285,7 @@ export default class World {
 
             const tile: Square | null = this.squares[level][x][z];
             if (tile) {
-                tile.quickGround = new QuickGround(
-                    colour2SW, colour2SE, colour2NE, colour2NW,
-                    texture,
-                    underlay,
-                    heightSW === heightSE && heightSW === heightNE && heightSW === heightNW
-                );
+                tile.quickGround = new QuickGround(colour2SW, colour2SE, colour2NE, colour2NW, texture, underlay, heightSW === heightSE && heightSW === heightNE && heightSW === heightNW);
             }
         } else {
             for (let l: number = level; l >= 0; l--) {
@@ -287,15 +296,7 @@ export default class World {
 
             const tile: Square | null = this.squares[level][x][z];
             if (tile) {
-                tile.ground = new Ground(
-                    x, z,
-                    shape, rotation,
-                    texture,
-                    heightSW, heightSE, heightNE, heightNW,
-                    colourSW, colourSE, colourNE, colourNW,
-                    colour2SW, colour2SE, colour2NE, colour2NW,
-                    overlay, underlay
-                );
+                tile.ground = new Ground(x, z, shape, rotation, texture, heightSW, heightSE, heightNE, heightNW, colourSW, colourSE, colourNE, colourNW, colour2SW, colour2SE, colour2NE, colour2NW, overlay, underlay);
             }
         }
     }
@@ -863,7 +864,7 @@ export default class World {
         this.xOrig = (viewportWidth / 2) | 0;
         this.yOrig = (viewportHeight / 2) | 0;
 
-        const visBacking: boolean[][][][] = new TypedArray4d(9, 32, 53, 53, false);
+        const visBacking: boolean[][][][] = new TypedArray4d(9, 32, VIS_BUILD_SIZE, VIS_BUILD_SIZE, false);
         for (let pitch: number = 128; pitch <= 384; pitch += 32) {
             for (let yaw: number = 0; yaw < 2048; yaw += 64) {
                 this.cameraSinX = Pix3D.sinTable[pitch];
@@ -873,8 +874,8 @@ export default class World {
 
                 const pitchLevel: number = ((pitch - 128) / 32) | 0;
                 const yawLevel: number = (yaw / 64) | 0;
-                for (let dx: number = -26; dx <= 26; dx++) {
-                    for (let dz: number = -26; dz <= 26; dz++) {
+                for (let dx: number = -(VIS_CENTER + 1); dx <= VIS_CENTER + 1; dx++) {
+                    for (let dz: number = -(VIS_CENTER + 1); dz <= VIS_CENTER + 1; dz++) {
                         const x: number = dx * 128;
                         const z: number = dz * 128;
 
@@ -886,7 +887,7 @@ export default class World {
                             }
                         }
 
-                        visBacking[pitchLevel][yawLevel][dx + 25 + 1][dz + 25 + 1] = visible;
+                        visBacking[pitchLevel][yawLevel][dx + VIS_CENTER + 1][dz + VIS_CENTER + 1] = visible;
                     }
                 }
             }
@@ -894,35 +895,35 @@ export default class World {
 
         for (let pitchLevel: number = 0; pitchLevel < 8; pitchLevel++) {
             for (let yawLevel: number = 0; yawLevel < 32; yawLevel++) {
-                for (let x: number = -25; x < 25; x++) {
-                    for (let z: number = -25; z < 25; z++) {
+                for (let x: number = -VIS_CENTER; x < VIS_CENTER; x++) {
+                    for (let z: number = -VIS_CENTER; z < VIS_CENTER; z++) {
                         let visible: boolean = false;
 
                         check_areas: for (let dx: number = -1; dx <= 1; dx++) {
                             for (let dz: number = -1; dz <= 1; dz++) {
-                                if (visBacking[pitchLevel][yawLevel][x + dx + 25 + 1][z + dz + 25 + 1]) {
+                                if (visBacking[pitchLevel][yawLevel][x + dx + VIS_CENTER + 1][z + dz + VIS_CENTER + 1]) {
                                     visible = true;
                                     break check_areas;
                                 }
 
-                                if (visBacking[pitchLevel][(yawLevel + 1) % 31][x + dx + 25 + 1][z + dz + 25 + 1]) {
+                                if (visBacking[pitchLevel][(yawLevel + 1) % 31][x + dx + VIS_CENTER + 1][z + dz + VIS_CENTER + 1]) {
                                     visible = true;
                                     break check_areas;
                                 }
 
-                                if (visBacking[pitchLevel + 1][yawLevel][x + dx + 25 + 1][z + dz + 25 + 1]) {
+                                if (visBacking[pitchLevel + 1][yawLevel][x + dx + VIS_CENTER + 1][z + dz + VIS_CENTER + 1]) {
                                     visible = true;
                                     break check_areas;
                                 }
 
-                                if (visBacking[pitchLevel + 1][(yawLevel + 1) % 31][x + dx + 25 + 1][z + dz + 25 + 1]) {
+                                if (visBacking[pitchLevel + 1][(yawLevel + 1) % 31][x + dx + VIS_CENTER + 1][z + dz + VIS_CENTER + 1]) {
                                     visible = true;
                                     break check_areas;
                                 }
                             }
                         }
 
-                        this.visBacking[pitchLevel][yawLevel][x + 25][z + 25] = visible;
+                        this.visBacking[pitchLevel][yawLevel][x + VIS_CENTER][z + VIS_CENTER] = visible;
                     }
                 }
             }
@@ -952,7 +953,7 @@ export default class World {
         World.groundZ = -1;
     }
 
-    renderAll(eyeX: number, eyeY: number, eyeZ: number, maxLevel: number, eyeYaw: number, eyePitch: number): void {
+    renderAll(eyeX: number, eyeY: number, eyeZ: number, maxLevel: number, eyeYaw: number, eyePitch: number, renderRadius: number = BASE_RENDER_RADIUS): void {
         if (eyeX < 0) {
             eyeX = 0;
         } else if (eyeX >= this.maxTileX * 128) {
@@ -971,30 +972,32 @@ export default class World {
         World.cameraSinY = Pix3D.sinTable[eyeYaw];
         World.cameraCosY = Pix3D.cosTable[eyeYaw];
 
-        World.visBackingDirty = World.visBacking[((eyePitch - 128) / 32) | 0][(eyeYaw / 64) | 0];
+        const visPitch = Math.max(128, Math.min(383, eyePitch));
+        World.visBackingDirty = World.visBacking[((visPitch - 128) / 32) | 0][(eyeYaw / 64) | 0];
         World.cx = eyeX;
         World.cy = eyeY;
         World.cz = eyeZ;
         World.gx = (eyeX / 128) | 0;
         World.gz = (eyeZ / 128) | 0;
         World.maxLevel = maxLevel;
+        World.renderRadius = Math.max(BASE_RENDER_RADIUS, Math.min(MAX_RENDER_RADIUS, renderRadius | 0));
 
-        World.minX = World.gx - 25;
+        World.minX = World.gx - World.renderRadius;
         if (World.minX < 0) {
             World.minX = 0;
         }
 
-        World.minZ = World.gz - 25;
+        World.minZ = World.gz - World.renderRadius;
         if (World.minZ < 0) {
             World.minZ = 0;
         }
 
-        World.maxX = World.gx + 25;
+        World.maxX = World.gx + World.renderRadius;
         if (World.maxX > this.maxTileX) {
             World.maxX = this.maxTileX;
         }
 
-        World.maxZ = World.gz + 25;
+        World.maxZ = World.gz + World.renderRadius;
         if (World.maxZ > this.maxTileZ) {
             World.maxZ = this.maxTileZ;
         }
@@ -1011,7 +1014,7 @@ export default class World {
                         continue;
                     }
 
-                    if (tile.drawLevel <= maxLevel && (World.visBackingDirty[x + 25 - World.gx][z + 25 - World.gz] || this.groundh[level][x][z] - eyeY >= 2000)) {
+                    if (tile.drawLevel <= maxLevel && (World.visBackingDirty[x + VIS_CENTER - World.gx][z + VIS_CENTER - World.gz] || this.groundh[level][x][z] - eyeY >= 2000)) {
                         tile.drawFront = true;
                         tile.drawBack = true;
                         tile.drawSprites = tile.spriteCount > 0;
@@ -1027,7 +1030,7 @@ export default class World {
 
         for (let level: number = this.minLevel; level < this.maxTileLevel; level++) {
             const tiles: (Square | null)[][] = this.squares[level];
-            for (let dx: number = -25; dx <= 0; dx++) {
+            for (let dx: number = -World.renderRadius; dx <= 0; dx++) {
                 const rightTileX: number = World.gx + dx;
                 const leftTileX: number = World.gx - dx;
 
@@ -1035,7 +1038,7 @@ export default class World {
                     continue;
                 }
 
-                for (let dz: number = -25; dz <= 0; dz++) {
+                for (let dz: number = -World.renderRadius; dz <= 0; dz++) {
                     const forwardTileZ: number = World.gz + dz;
                     const backwardTileZ: number = World.gz - dz;
                     let tile: Square | null;
@@ -1082,7 +1085,7 @@ export default class World {
 
         for (let level: number = this.minLevel; level < this.maxTileLevel; level++) {
             const tiles: (Square | null)[][] = this.squares[level];
-            for (let dx: number = -25; dx <= 0; dx++) {
+            for (let dx: number = -World.renderRadius; dx <= 0; dx++) {
                 const rightTileX: number = World.gx + dx;
                 const leftTileX: number = World.gx - dx;
 
@@ -1090,7 +1093,7 @@ export default class World {
                     continue;
                 }
 
-                for (let dz: number = -25; dz <= 0; dz++) {
+                for (let dz: number = -World.renderRadius; dz <= 0; dz++) {
                     const forwardTileZ: number = World.gz + dz;
                     const backgroundTileZ: number = World.gz - dz;
                     let tile: Square | null;
@@ -1136,21 +1139,7 @@ export default class World {
         }
     }
 
-    private setSprite(
-        x: number,
-        z: number,
-        y: number,
-        level: number,
-        tileX: number,
-        tileZ: number,
-        tileSizeX: number,
-        tileSizeZ: number,
-        model: ModelSource | null,
-        typecode: number,
-        info: number,
-        yaw: number,
-        dynamic: boolean
-    ): boolean {
+    private setSprite(x: number, z: number, y: number, level: number, tileX: number, tileZ: number, tileSizeX: number, tileSizeZ: number, model: ModelSource | null, typecode: number, info: number, yaw: number, dynamic: boolean): boolean {
         if (!model) {
             return false;
         }
@@ -1240,6 +1229,8 @@ export default class World {
     private calcOcclude(): void {
         const count: number = World.numOccluders[World.maxLevel];
         const occluders: (Occlude | null)[] = World.occluders[World.maxLevel];
+        const minVis = VIS_CENTER - World.renderRadius;
+        const maxVis = VIS_CENTER + World.renderRadius;
 
         World.numActiveOccluders = 0;
 
@@ -1255,16 +1246,16 @@ export default class World {
             let deltaMaxTileX: number;
 
             if (occluder.type === 1) {
-                deltaMaxY = occluder.minTileX + 25 - World.gx;
-                if (deltaMaxY >= 0 && deltaMaxY <= 50) {
-                    deltaMinTileZ = occluder.minTileZ + 25 - World.gz;
-                    if (deltaMinTileZ < 0) {
-                        deltaMinTileZ = 0;
+                deltaMaxY = occluder.minTileX - World.gx + VIS_CENTER;
+                if (deltaMaxY >= minVis && deltaMaxY <= maxVis) {
+                    deltaMinTileZ = occluder.minTileZ - World.gz + VIS_CENTER;
+                    if (deltaMinTileZ < minVis) {
+                        deltaMinTileZ = minVis;
                     }
 
-                    deltaMaxTileZ = occluder.maxTileZ + 25 - World.gz;
-                    if (deltaMaxTileZ > 50) {
-                        deltaMaxTileZ = 50;
+                    deltaMaxTileZ = occluder.maxTileZ - World.gz + VIS_CENTER;
+                    if (deltaMaxTileZ > maxVis) {
+                        deltaMaxTileZ = maxVis;
                     }
 
                     let ok: boolean = false;
@@ -1296,17 +1287,17 @@ export default class World {
                     }
                 }
             } else if (occluder.type === 2) {
-                deltaMaxY = occluder.minTileZ + 25 - World.gz;
+                deltaMaxY = occluder.minTileZ - World.gz + VIS_CENTER;
 
-                if (deltaMaxY >= 0 && deltaMaxY <= 50) {
-                    deltaMinTileZ = occluder.minTileX + 25 - World.gx;
-                    if (deltaMinTileZ < 0) {
-                        deltaMinTileZ = 0;
+                if (deltaMaxY >= minVis && deltaMaxY <= maxVis) {
+                    deltaMinTileZ = occluder.minTileX - World.gx + VIS_CENTER;
+                    if (deltaMinTileZ < minVis) {
+                        deltaMinTileZ = minVis;
                     }
 
-                    deltaMaxTileZ = occluder.maxTileX + 25 - World.gx;
-                    if (deltaMaxTileZ > 50) {
-                        deltaMaxTileZ = 50;
+                    deltaMaxTileZ = occluder.maxTileX - World.gx + VIS_CENTER;
+                    if (deltaMaxTileZ > maxVis) {
+                        deltaMaxTileZ = maxVis;
                     }
 
                     let ok: boolean = false;
@@ -1341,25 +1332,25 @@ export default class World {
                 deltaMaxY = occluder.minY - World.cy;
 
                 if (deltaMaxY > 128) {
-                    deltaMinTileZ = occluder.minTileZ + 25 - World.gz;
-                    if (deltaMinTileZ < 0) {
-                        deltaMinTileZ = 0;
+                    deltaMinTileZ = occluder.minTileZ - World.gz + VIS_CENTER;
+                    if (deltaMinTileZ < minVis) {
+                        deltaMinTileZ = minVis;
                     }
 
-                    deltaMaxTileZ = occluder.maxTileZ + 25 - World.gz;
-                    if (deltaMaxTileZ > 50) {
-                        deltaMaxTileZ = 50;
+                    deltaMaxTileZ = occluder.maxTileZ - World.gz + VIS_CENTER;
+                    if (deltaMaxTileZ > maxVis) {
+                        deltaMaxTileZ = maxVis;
                     }
 
                     if (deltaMinTileZ <= deltaMaxTileZ) {
-                        let deltaMinTileX: number = occluder.minTileX + 25 - World.gx;
-                        if (deltaMinTileX < 0) {
-                            deltaMinTileX = 0;
+                        let deltaMinTileX: number = occluder.minTileX - World.gx + VIS_CENTER;
+                        if (deltaMinTileX < minVis) {
+                            deltaMinTileX = minVis;
                         }
 
-                        deltaMaxTileX = occluder.maxTileX + 25 - World.gx;
-                        if (deltaMaxTileX > 50) {
-                            deltaMaxTileX = 50;
+                        deltaMaxTileX = occluder.maxTileX - World.gx + VIS_CENTER;
+                        if (deltaMaxTileX > maxVis) {
+                            deltaMaxTileX = maxVis;
                         }
 
                         let ok: boolean = false;
@@ -2005,43 +1996,17 @@ export default class World {
             if (ground.texture !== -1) {
                 if (!World.lowMem) {
                     if (ground.flat) {
-                        Pix3D.textureTriangle(
-                            py1, px3, pz0,
-                            pz1, py3, px1,
-                            ground.colourNE, ground.colourNW, ground.colourSE,
-                            x0, y0, z0,
-                            x1, x3,
-                            y1, y3,
-                            z1, z3,
-                            ground.texture
-                        );
+                        Pix3D.textureTriangle(py1, px3, pz0, pz1, py3, px1, ground.colourNE, ground.colourNW, ground.colourSE, x0, y0, z0, x1, x3, y1, y3, z1, z3, ground.texture);
                     } else {
-                        Pix3D.textureTriangle(
-                            py1, px3, pz0,
-                            pz1, py3, px1,
-                            ground.colourNE, ground.colourNW, ground.colourSE,
-                            x2, y2, z2,
-                            x3, x1,
-                            y3, y1,
-                            z3, z1,
-                            ground.texture
-                        );
+                        Pix3D.textureTriangle(py1, px3, pz0, pz1, py3, px1, ground.colourNE, ground.colourNW, ground.colourSE, x2, y2, z2, x3, x1, y3, y1, z3, z1, ground.texture);
                     }
                 } else {
                     const textureAverage: number = TEXTURE_AVERAGE[ground.texture];
-                    Pix3D.gouraudTriangle(
-                        py1, px3, pz0,
-                        pz1, py3, px1,
-                        this.getTable(textureAverage, ground.colourNE), this.getTable(textureAverage, ground.colourNW), this.getTable(textureAverage, ground.colourSE)
-                    );
+                    Pix3D.gouraudTriangle(py1, px3, pz0, pz1, py3, px1, this.getTable(textureAverage, ground.colourNE), this.getTable(textureAverage, ground.colourNW), this.getTable(textureAverage, ground.colourSE));
                 }
             } else {
                 if (ground.colourNE !== 12345678) {
-                    Pix3D.gouraudTriangle(
-                        py1, px3, pz0,
-                        pz1, py3, px1,
-                        ground.colourNE, ground.colourNW, ground.colourSE
-                    );
+                    Pix3D.gouraudTriangle(py1, px3, pz0, pz1, py3, px1, ground.colourNE, ground.colourNW, ground.colourSE);
                 }
             }
         }
@@ -2056,31 +2021,14 @@ export default class World {
 
             if (ground.texture !== -1) {
                 if (!World.lowMem) {
-                    Pix3D.textureTriangle(
-                        px0, pz0, px3,
-                        py0, px1, py3,
-                        ground.colourSW, ground.colourSE, ground.colourNW,
-                        x0, y0, z0,
-                        x1, x3,
-                        y1, y3,
-                        z1, z3,
-                        ground.texture
-                    );
+                    Pix3D.textureTriangle(px0, pz0, px3, py0, px1, py3, ground.colourSW, ground.colourSE, ground.colourNW, x0, y0, z0, x1, x3, y1, y3, z1, z3, ground.texture);
                 } else {
                     const textureAverage: number = TEXTURE_AVERAGE[ground.texture];
-                    Pix3D.gouraudTriangle(
-                        px0, pz0, px3,
-                        py0, px1, py3,
-                        this.getTable(textureAverage, ground.colourSW), this.getTable(textureAverage, ground.colourSE), this.getTable(textureAverage, ground.colourNW)
-                    );
+                    Pix3D.gouraudTriangle(px0, pz0, px3, py0, px1, py3, this.getTable(textureAverage, ground.colourSW), this.getTable(textureAverage, ground.colourSE), this.getTable(textureAverage, ground.colourNW));
                 }
             } else {
                 if (ground.colourSW !== 12345678) {
-                    Pix3D.gouraudTriangle(
-                        px0, pz0, px3,
-                        py0, px1, py3,
-                        ground.colourSW, ground.colourSE, ground.colourNW
-                    );
+                    Pix3D.gouraudTriangle(px0, pz0, px3, py0, px1, py3, ground.colourSW, ground.colourSE, ground.colourNW);
                 }
             }
         }
@@ -2144,42 +2092,56 @@ export default class World {
                     if (!World.lowMem) {
                         if (ground.flat) {
                             Pix3D.textureTriangle(
-                                x0, x1, x2,
-                                y0, y1, y2,
-                                ground.faceColourA[v], ground.faceColourB[v], ground.faceColourC[v],
-                                Ground.drawTextureVertexX[0], Ground.drawTextureVertexY[0], Ground.drawTextureVertexZ[0],
-                                Ground.drawTextureVertexX[1], Ground.drawTextureVertexX[3],
-                                Ground.drawTextureVertexY[1], Ground.drawTextureVertexY[3],
-                                Ground.drawTextureVertexZ[1], Ground.drawTextureVertexZ[3],
+                                x0,
+                                x1,
+                                x2,
+                                y0,
+                                y1,
+                                y2,
+                                ground.faceColourA[v],
+                                ground.faceColourB[v],
+                                ground.faceColourC[v],
+                                Ground.drawTextureVertexX[0],
+                                Ground.drawTextureVertexY[0],
+                                Ground.drawTextureVertexZ[0],
+                                Ground.drawTextureVertexX[1],
+                                Ground.drawTextureVertexX[3],
+                                Ground.drawTextureVertexY[1],
+                                Ground.drawTextureVertexY[3],
+                                Ground.drawTextureVertexZ[1],
+                                Ground.drawTextureVertexZ[3],
                                 ground.faceTexture[v]
                             );
                         } else {
                             Pix3D.textureTriangle(
-                                x0, x1, x2,
-                                y0, y1, y2,
-                                ground.faceColourA[v], ground.faceColourB[v], ground.faceColourC[v],
-                                Ground.drawTextureVertexX[a], Ground.drawTextureVertexY[a], Ground.drawTextureVertexZ[a],
-                                Ground.drawTextureVertexX[b], Ground.drawTextureVertexX[c],
-                                Ground.drawTextureVertexY[b], Ground.drawTextureVertexY[c],
-                                Ground.drawTextureVertexZ[b], Ground.drawTextureVertexZ[c],
+                                x0,
+                                x1,
+                                x2,
+                                y0,
+                                y1,
+                                y2,
+                                ground.faceColourA[v],
+                                ground.faceColourB[v],
+                                ground.faceColourC[v],
+                                Ground.drawTextureVertexX[a],
+                                Ground.drawTextureVertexY[a],
+                                Ground.drawTextureVertexZ[a],
+                                Ground.drawTextureVertexX[b],
+                                Ground.drawTextureVertexX[c],
+                                Ground.drawTextureVertexY[b],
+                                Ground.drawTextureVertexY[c],
+                                Ground.drawTextureVertexZ[b],
+                                Ground.drawTextureVertexZ[c],
                                 ground.faceTexture[v]
                             );
                         }
                     } else {
                         const textureAverage: number = TEXTURE_AVERAGE[ground.faceTexture[v]];
-                        Pix3D.gouraudTriangle(
-                            x0, x1, x2,
-                            y0, y1, y2,
-                            this.getTable(textureAverage, ground.faceColourA[v]), this.getTable(textureAverage, ground.faceColourB[v]), this.getTable(textureAverage, ground.faceColourC[v])
-                        );
+                        Pix3D.gouraudTriangle(x0, x1, x2, y0, y1, y2, this.getTable(textureAverage, ground.faceColourA[v]), this.getTable(textureAverage, ground.faceColourB[v]), this.getTable(textureAverage, ground.faceColourC[v]));
                     }
                 } else {
                     if (ground.faceColourA[v] !== 12345678) {
-                        Pix3D.gouraudTriangle(
-                            x0, x1, x2,
-                            y0, y1, y2,
-                            ground.faceColourA[v], ground.faceColourB[v], ground.faceColourC[v]
-                        );
+                        Pix3D.gouraudTriangle(x0, x1, x2, y0, y1, y2, ground.faceColourA[v], ground.faceColourB[v], ground.faceColourC[v]);
                     }
                 }
             }

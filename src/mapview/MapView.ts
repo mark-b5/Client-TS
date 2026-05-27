@@ -255,8 +255,7 @@ export class MapView extends GameShell {
             const free: Packet = new Packet(worldmap.read('free.dat'));
             this.freePos = new TypedArray2d(this.mapWidth, this.mapHeight, false);
             this.loadFree(free);
-        } catch (_e) {
-        }
+        } catch (_e) {}
 
         try {
             for (let i: number = 0; i < 100; i++) {
@@ -278,8 +277,7 @@ export class MapView extends GameShell {
         try {
             this.mapdot0 = Pix32.depack(worldmap, 'mapdots', 0);
             this.mapdot1 = Pix32.depack(worldmap, 'mapdots', 1);
-        } catch (_e) {
-        }
+        } catch (_e) {}
 
         this.b12 = PixFont.depack(worldmap, 'b12_full', false);
 
@@ -1169,8 +1167,8 @@ export class MapView extends GameShell {
 
         if (MapView.shouldDrawFreemap) {
             for (let x = 0; x < visibleX; x++) {
-                let startX = widthRatio * x >> 16;
-                let endX = widthRatio * (x + 1) >> 16;
+                let startX = (widthRatio * x) >> 16;
+                let endX = (widthRatio * (x + 1)) >> 16;
                 let lengthX = endX - startX;
                 if (lengthX <= 0) {
                     continue;
@@ -1181,8 +1179,8 @@ export class MapView extends GameShell {
 
                 let multi = this.freePos[x + left];
                 for (let y = 0; y < visibleY; y++) {
-                    let startY = heightRatio * y >> 16;
-                    let endY = heightRatio * (y + 1) >> 16;
+                    let startY = (heightRatio * y) >> 16;
+                    let endY = (heightRatio * (y + 1)) >> 16;
                     let lengthY = endY - startY;
                     if (lengthY <= 0) {
                         continue;
@@ -1200,8 +1198,8 @@ export class MapView extends GameShell {
 
         if (MapView.shouldDrawMultimap) {
             for (let x = 0; x < visibleX; x++) {
-                let startX = widthRatio * x >> 16;
-                let endX = widthRatio * (x + 1) >> 16;
+                let startX = (widthRatio * x) >> 16;
+                let endX = (widthRatio * (x + 1)) >> 16;
                 let lengthX = endX - startX;
                 if (lengthX <= 0) {
                     continue;
@@ -1212,8 +1210,8 @@ export class MapView extends GameShell {
 
                 let multi = this.multiPos[x + left];
                 for (let y = 0; y < visibleY; y++) {
-                    let startY = heightRatio * y >> 16;
-                    let endY = heightRatio * (y + 1) >> 16;
+                    let startY = (heightRatio * y) >> 16;
+                    let endY = (heightRatio * (y + 1)) >> 16;
                     let lengthY = endY - startY;
                     if (lengthY <= 0) {
                         continue;
@@ -1360,7 +1358,7 @@ export class MapView extends GameShell {
                         }
                     }
 
-                    drawY -= ((font.getHeight() * (lineCount - 1) / 2) | 0);
+                    drawY -= ((font.getHeight() * (lineCount - 1)) / 2) | 0;
                     drawY += (font.getYOffset() / 2) | 0;
 
                     while (true) {
@@ -1922,16 +1920,43 @@ export class MapView extends GameShell {
         this.nextMouseClickButton = 0;
     }
 
-    override pointerEnter() {
-    }
+    override pointerEnter() {}
 
-    override pointerLeave() {
-    }
+    override pointerLeave() {}
 
     override pointerMove(x: number, y: number, _e: PointerEvent) {
         if (!this.dragging) {
             this.mouseX = x;
             this.mouseY = y;
+        }
+    }
+
+    override wheel(e: WheelEvent) {
+        this.idleTimer = performance.now();
+        e.preventDefault();
+
+        if (e.deltaY < 0) {
+            if (this.targetZoom == 4.0) {
+                this.targetZoom = 3.0;
+                this.redraw = true;
+            } else if (this.targetZoom == 6.0) {
+                this.targetZoom = 4.0;
+                this.redraw = true;
+            } else if (this.targetZoom == 8.0) {
+                this.targetZoom = 6.0;
+                this.redraw = true;
+            }
+        } else if (e.deltaY > 0) {
+            if (this.targetZoom == 3.0) {
+                this.targetZoom = 4.0;
+                this.redraw = true;
+            } else if (this.targetZoom == 4.0) {
+                this.targetZoom = 6.0;
+                this.redraw = true;
+            } else if (this.targetZoom == 6.0) {
+                this.targetZoom = 8.0;
+                this.redraw = true;
+            }
         }
     }
 
