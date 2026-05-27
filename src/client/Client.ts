@@ -4080,6 +4080,7 @@ export class Client extends GameShell {
         if (this.sceneState === 2) {
             this.minimapDraw();
             this.areaMap?.draw(550, 4);
+            this.drawStatusOrbs();
         }
 
         if (this.tutFlashIcon !== -1) {
@@ -11858,6 +11859,83 @@ export class Client extends GameShell {
         this.areaGame?.setPixels();
     }
 
+    private drawStatusOrbs(): void {
+        const hpCurrent: number = Math.max(0, this.statEffectiveLevel[3] | 0);
+        const hpBase: number = Math.max(1, this.statBaseLevel[3] | 0);
+        const prayerCurrent: number = Math.max(0, this.statEffectiveLevel[5] | 0);
+        const prayerBase: number = Math.max(1, this.statBaseLevel[5] | 0);
+        const runCurrent: number = Math.max(0, Math.min(100, this.runenergy | 0));
+
+        // Draw on the main canvas after the minimap is blitted, so the stack sits on top of
+        // the frame instead of inside the clipped minimap buffer.
+        this.drawStatusPanel(516, 93, 42, 24, 'H', hpCurrent, hpCurrent, hpBase, 0xbe2d2d, 0x72ffab);
+        this.drawStatusPanel(534, 118, 42, 24, 'P', prayerCurrent, prayerCurrent, prayerBase, 0x2f77d8, 0x6ec8ff);
+        this.drawStatusPanel(551, 143, 42, 24, 'R', runCurrent, runCurrent, 100, 0x2aa455, 0x7dffab);
+    }
+
+    // x/y are absolute canvas coords. Badge is on the RIGHT, straddling the minimap frame edge.
+    private drawStatusPanel(x: number, y: number, width: number, height: number, badgeText: string, value: number, fillCurrent: number, fillMax: number, fillRgb: number, valueRgb: number): void {
+        const valueText: string = Math.max(0, value | 0).toString();
+        const badgeRadius: number = ((height * 11) / 20) | 0;
+        const overlayWidth: number = width + badgeRadius + 2;
+        const overlayHeight: number = height;
+        const overlayY: number = y - ((height / 2) | 0);
+        const fontHeight: number = this.p11?.height ?? 12;
+        const panel = new PixMap(overlayWidth, overlayHeight);
+
+        panel.setPixels();
+
+        // Background row.
+        Pix2D.fillRect(0, 0, overlayWidth, overlayHeight, 0x2b1f16);
+        Pix2D.drawRect(0, 0, overlayWidth, overlayHeight, 0x654b35);
+        Pix2D.hline(1, 1, overlayWidth - 2, 0xb08b69);
+
+        // Use the in-game font for the value text.
+        if (this.p11) {
+            const textY: number = ((overlayHeight / 2) | 0) + ((fontHeight / 2) | 0);
+            this.p11.centreString(valueText, ((width / 2) | 0) - 5, textY + 1, Colour.BLACK);
+            this.p11.centreString(valueText, ((width / 2) | 0) - 5, textY, valueRgb);
+        }
+
+        // Badge straddles the right edge of the row.
+        const badgeX: number = width - 1;
+        this.drawStatusBadge(badgeX, 12, badgeRadius, badgeText, fillCurrent, fillMax, fillRgb);
+
+        panel.draw(x, overlayY);
+        this.areaGame?.setPixels();
+    }
+
+    private drawStatusBadge(x: number, y: number, radius: number, badgeText: string, current: number, max: number, fillRgb: number): void {
+        const clampedMax: number = Math.max(1, max | 0);
+        const clampedCurrent: number = Math.max(0, Math.min(clampedMax, current | 0));
+        const percent: number = Math.max(0, Math.min(100, ((clampedCurrent * 100) / clampedMax) | 0));
+        const innerRadius: number = radius - 2;
+
+        Pix2D.fillCircle(x + 1, y + 1, radius, 0x000000, 120);
+        Pix2D.fillCircle(x, y, radius, 0x2c3b40, 256);
+        Pix2D.fillCircle(x, y, radius - 1, 0x5b767f, 160);
+        Pix2D.fillCircle(x, y, innerRadius, 0x10232b, 256);
+
+        if (percent >= 100) {
+            Pix2D.fillCircle(x, y, innerRadius + 1, fillRgb, 256);
+        } else if (percent > 0) {
+            const fillHeight: number = Math.max(1, ((innerRadius * 2 * percent) / 100) | 0);
+            const fillTop: number = y + innerRadius - fillHeight + 1;
+            Pix2D.setClipping(x - innerRadius, fillTop, x + innerRadius + 1, y + innerRadius + 1);
+            Pix2D.fillCircle(x, y, innerRadius, fillRgb, 228);
+            Pix2D.resetClipping();
+        }
+
+        Pix2D.fillCircle(x - 2, y - 3, 3, 0xffffff, 68);
+
+        if (this.p11) {
+            const fontHeight: number = this.p11.height;
+            const badgeTextY: number = y + ((fontHeight / 2) | 0);
+            this.p11.centreString(badgeText, x + 1, badgeTextY + 1, Colour.BLACK);
+            this.p11.centreString(badgeText, x, badgeTextY, 0xf2f7f8);
+        }
+    }
+
     minimapDrawArrow(dx: number, dy: number, image: Pix32 | null) {
         if (!image) {
             return;
@@ -11920,7 +11998,6 @@ export class Client extends GameShell {
             this.tutComMessage = text;
             this.mouseClickButton = 0;
         }
-
         if (this.chatModalId === -1) {
             this.redrawChat = true;
         }
