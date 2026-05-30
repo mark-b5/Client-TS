@@ -574,61 +574,37 @@ export default class ClientBuild {
                 for (let z: number = 0; z < 64; z++) {
                     const stx: number = x + xOffset;
                     const stz: number = z + zOffset;
-                    let opcode: number;
+                    this.loadGroundTile(buf, level, stx, stz, originX, originZ);
+                }
+            }
+        }
+    }
 
-                    if (stx >= 0 && stx < BuildArea.SIZE && stz >= 0 && stz < BuildArea.SIZE) {
-                        this.mapl[level][stx][stz] = 0;
+    loadGroundRegion(src: Uint8Array, buildLevel: number, srcLevel: number, srcChunkX: number, srcChunkZ: number, rotation: number, dstChunkX: number, dstChunkZ: number, collisions: (CollisionMap | null)[]): void {
+        for (let x = 0; x < 8; x++) {
+            for (let z = 0; z < 8; z++) {
+                const dstX = dstChunkX + x;
+                const dstZ = dstChunkZ + z;
+                if (dstX > 0 && dstX < BuildArea.SIZE - 1 && dstZ > 0 && dstZ < BuildArea.SIZE - 1) {
+                    const cmap = collisions[buildLevel];
+                    if (cmap) {
+                        const index = CollisionMap.index(dstX, dstZ);
+                        cmap.flags[index] &= ~0x1000000;
+                    }
+                }
+            }
+        }
 
-                        while (true) {
-                            opcode = buf.g1();
-                            if (opcode === 0) {
-                                if (level === 0) {
-                                    this.groundh[0][stx][stz] = -ClientBuild.perlinNoise(stx + originX + 932731, stz + 556238 + originZ) * 8;
-                                } else {
-                                    this.groundh[level][stx][stz] = this.groundh[level - 1][stx][stz] - 240;
-                                }
-                                break;
-                            }
-
-                            if (opcode === 1) {
-                                let height: number = buf.g1();
-                                if (height === 1) {
-                                    height = 0;
-                                }
-                                if (level === 0) {
-                                    this.groundh[0][stx][stz] = -height * 8;
-                                } else {
-                                    this.groundh[level][stx][stz] = this.groundh[level - 1][stx][stz] - height * 8;
-                                }
-                                break;
-                            }
-
-                            if (opcode <= 49) {
-                                this.floort2[level][stx][stz] = buf.g1b();
-                                this.floors[level][stx][stz] = ((((opcode - 2) / 4) | 0) << 24) >> 24;
-                                this.floorr[level][stx][stz] = (((opcode - 2) & 0x3) << 24) >> 24;
-                            } else if (opcode <= 81) {
-                                this.mapl[level][stx][stz] = ((opcode - 49) << 24) >> 24;
-                            } else {
-                                this.floort1[level][stx][stz] = ((opcode - 81) << 24) >> 24;
-                            }
-                        }
+        const buf: Packet = new Packet(src);
+        for (let level = 0; level < BuildArea.LEVELS; level++) {
+            for (let x = 0; x < 64; x++) {
+                for (let z = 0; z < 64; z++) {
+                    if (level === srcLevel && x >= srcChunkX && x < srcChunkX + 8 && z >= srcChunkZ && z < srcChunkZ + 8) {
+                        const dstX = dstChunkX + ClientBuild.rotateChunkX(rotation, x & 0x7, z & 0x7);
+                        const dstZ = dstChunkZ + ClientBuild.rotateChunkZ(rotation, x & 0x7, z & 0x7);
+                        this.loadGroundTile(buf, buildLevel, dstX, dstZ, 0, 0);
                     } else {
-                        while (true) {
-                            opcode = buf.g1();
-                            if (opcode === 0) {
-                                break;
-                            }
-
-                            if (opcode === 1) {
-                                buf.g1();
-                                break;
-                            }
-
-                            if (opcode <= 49) {
-                                buf.g1();
-                            }
-                        }
+                        this.loadGroundTile(buf, 0, -1, -1, 0, 0);
                     }
                 }
             }
@@ -760,6 +736,188 @@ export default class ClientBuild {
                 }
             }
         }
+    }
+
+    loadLocationsRegion(src: Uint8Array, buildLevel: number, srcLevel: number, srcChunkX: number, srcChunkZ: number, rotation: number, dstChunkX: number, dstChunkZ: number, world: World | null, collisions: (CollisionMap | null)[]): void {
+        const buf: Packet = new Packet(src);
+        let locId: number = -1;
+
+        while (true) {
+            const deltaId: number = buf.gsmart();
+            if (deltaId === 0) {
+                return;
+            }
+
+            locId += deltaId;
+
+            let locPos: number = 0;
+            while (true) {
+                const deltaPos: number = buf.gsmart();
+                if (deltaPos === 0) {
+                    break;
+                }
+
+                locPos += deltaPos - 1;
+                const z: number = locPos & 0x3f;
+                const x: number = (locPos >> 6) & 0x3f;
+                const level: number = locPos >> 12;
+
+                const info: number = buf.g1();
+                const shape: number = info >> 2;
+                const locRotation: number = info & 0x3;
+
+                if (level !== srcLevel || x < srcChunkX || x >= srcChunkX + 8 || z < srcChunkZ || z >= srcChunkZ + 8) {
+                    continue;
+                }
+
+                const loc = LocType.list(locId);
+                const localX = ClientBuild.rotateLocX(rotation, loc.width, loc.length, locRotation, x & 0x7, z & 0x7);
+                const localZ = ClientBuild.rotateLocZ(rotation, loc.width, loc.length, locRotation, x & 0x7, z & 0x7);
+                const stx: number = dstChunkX + localX;
+                const stz: number = dstChunkZ + localZ;
+
+                if (stx > 0 && stz > 0 && stx < BuildArea.SIZE - 1 && stz < BuildArea.SIZE - 1) {
+                    let currentLevel: number = buildLevel;
+                    if ((this.mapl[1][stx][stz] & MapFlag.LinkBelow) !== 0) {
+                        currentLevel = buildLevel - 1;
+                    }
+
+                    let cmap: CollisionMap | null = null;
+                    if (currentLevel >= 0) {
+                        cmap = collisions[currentLevel];
+                    }
+
+                    this.addLoc(buildLevel, stx, stz, locId, shape, (rotation + locRotation) & 0x3, world, cmap);
+                }
+            }
+        }
+    }
+
+    private loadGroundTile(buf: Packet, level: number, stx: number, stz: number, originX: number, originZ: number): void {
+        let opcode: number;
+
+        if (stx >= 0 && stx < BuildArea.SIZE && stz >= 0 && stz < BuildArea.SIZE) {
+            this.mapl[level][stx][stz] = 0;
+
+            while (true) {
+                opcode = buf.g1();
+                if (opcode === 0) {
+                    if (level === 0) {
+                        this.groundh[0][stx][stz] = -ClientBuild.perlinNoise(stx + originX + 932731, stz + 556238 + originZ) * 8;
+                    } else {
+                        this.groundh[level][stx][stz] = this.groundh[level - 1][stx][stz] - 240;
+                    }
+                    break;
+                }
+
+                if (opcode === 1) {
+                    let height: number = buf.g1();
+                    if (height === 1) {
+                        height = 0;
+                    }
+                    if (level === 0) {
+                        this.groundh[0][stx][stz] = -height * 8;
+                    } else {
+                        this.groundh[level][stx][stz] = this.groundh[level - 1][stx][stz] - height * 8;
+                    }
+                    break;
+                }
+
+                if (opcode <= 49) {
+                    this.floort2[level][stx][stz] = buf.g1b();
+                    this.floors[level][stx][stz] = ((((opcode - 2) / 4) | 0) << 24) >> 24;
+                    this.floorr[level][stx][stz] = (((opcode - 2) & 0x3) << 24) >> 24;
+                } else if (opcode <= 81) {
+                    this.mapl[level][stx][stz] = ((opcode - 49) << 24) >> 24;
+                } else {
+                    this.floort1[level][stx][stz] = ((opcode - 81) << 24) >> 24;
+                }
+            }
+        } else {
+            while (true) {
+                opcode = buf.g1();
+                if (opcode === 0) {
+                    break;
+                }
+
+                if (opcode === 1) {
+                    buf.g1();
+                    break;
+                }
+
+                if (opcode <= 49) {
+                    buf.g1();
+                }
+            }
+        }
+    }
+
+    private static rotateChunkX(rotation: number, x: number, z: number): number {
+        const rot = rotation & 0x3;
+        if (rot === 0) {
+            return x;
+        }
+        if (rot === 1) {
+            return z;
+        }
+        if (rot === 2) {
+            return 7 - x;
+        }
+        return 7 - z;
+    }
+
+    private static rotateChunkZ(rotation: number, x: number, z: number): number {
+        const rot = rotation & 0x3;
+        if (rot === 0) {
+            return z;
+        }
+        if (rot === 1) {
+            return 7 - x;
+        }
+        if (rot === 2) {
+            return 7 - z;
+        }
+        return x;
+    }
+
+    private static rotateLocX(rotation: number, width: number, length: number, locRotation: number, x: number, z: number): number {
+        if ((locRotation & 0x1) === 1) {
+            const swap = length;
+            length = width;
+            width = swap;
+        }
+
+        const rot = rotation & 0x3;
+        if (rot === 0) {
+            return x;
+        }
+        if (rot === 1) {
+            return z;
+        }
+        if (rot === 2) {
+            return 7 - x - (length - 1);
+        }
+        return 7 - z - (width - 1);
+    }
+
+    private static rotateLocZ(rotation: number, width: number, length: number, locRotation: number, x: number, z: number): number {
+        if ((locRotation & 0x1) === 1) {
+            const swap = width;
+            width = length;
+            length = swap;
+        }
+
+        const rot = rotation & 0x3;
+        if (rot === 0) {
+            return z;
+        }
+        if (rot === 1) {
+            return 7 - x - (width - 1);
+        }
+        if (rot === 2) {
+            return 7 - z - (length - 1);
+        }
+        return x;
     }
 
     private addLoc(level: number, x: number, z: number, locId: number, shape: number, angle: number, world: World | null, collision: CollisionMap | null): void {
@@ -966,18 +1124,7 @@ export default class ClientBuild {
                 model2 = new ClientLocAnim(locId, 2, offset, heightSW, heightSE, heightNE, heightNW, loc.anim, true);
             }
 
-            world?.setWall(
-                level,
-                x,
-                z,
-                y,
-                ClientBuild.WSHAPE0[angle],
-                ClientBuild.WSHAPE0[offset],
-                model1,
-                model2,
-                typecode,
-                typecode2
-            );
+            world?.setWall(level, x, z, y, ClientBuild.WSHAPE0[angle], ClientBuild.WSHAPE0[offset], model1, model2, typecode, typecode2);
 
             if (loc.occlude) {
                 if (angle === LocAngle.WEST) {
@@ -1089,19 +1236,7 @@ export default class ClientBuild {
                     model = new ClientLocAnim(locId, 4, 0, heightSW, heightSE, heightNE, heightNW, loc.anim, true);
                 }
 
-                world?.setDecor(
-                    level,
-                    x,
-                    z,
-                    y,
-                    ClientBuild.DECORXOF[angle] * wallwidth,
-                    ClientBuild.DECORZOF[angle] * wallwidth,
-                    typecode,
-                    model,
-                    typecode2,
-                    angle * 512,
-                    ClientBuild.WSHAPE0[angle]
-                );
+                world?.setDecor(level, x, z, y, ClientBuild.DECORXOF[angle] * wallwidth, ClientBuild.DECORZOF[angle] * wallwidth, typecode, model, typecode2, angle * 512, ClientBuild.WSHAPE0[angle]);
             } else if (shape === LocShape.WALLDECOR_DIAGONAL_OFFSET) {
                 let model: ModelSource | null;
                 if (loc.anim === -1) {

@@ -65,6 +65,7 @@ export const enum ServerProt {
     MINIMAP_TOGGLE = 194,
 
     // maps
+    REBUILD_REGION = 53,
     REBUILD_NORMAL = 231,
 
     // vars
@@ -93,7 +94,7 @@ export const enum ServerProt {
     OBJ_COUNT = 95,
     MAP_ANIM = 85,
     OBJ_ADD = 81
-};
+}
 
 // prettier-ignore
 export const ServerProtSizes = [
@@ -102,7 +103,7 @@ export const ServerProtSizes = [
     0, 0, 0, 2, 0, 0, 0, 0, 6, 0,
     0, 0, 2, 0, 5, 0, 0, 0, 0, 0,
     0, 0, 0, 0, -2, 0, 0, 0, 4, 0,
-    0, 0, 3, 0, 4, 0, 0, 0, 0, 0,
+    0, 0, 3, -2, 4, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 4, 0, 0, 2, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 6, 0, 0,
     0, 5, 0, 1, 0, 6, 0, 0, 0, 2,

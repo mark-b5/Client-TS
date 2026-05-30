@@ -89,6 +89,7 @@ export class Client extends GameShell {
     static nodeId: number = 10;
     static memServer: boolean = true;
     static lowMem: boolean = false;
+    static debugInstances: boolean = false;
 
     static cyclelogic1: number = 0;
     static cyclelogic2: number = 0;
@@ -220,6 +221,8 @@ export class Client extends GameShell {
     private mapBuildLocationFile: number[] = [];
     private mapBuildGroundData: (Uint8Array | null)[] | null = null;
     private mapBuildLocationData: (Uint8Array | null)[] | null = null;
+    private mapBuildInstanced: boolean = false;
+    private mapBuildRegions: number[][][] = Array.from({ length: BuildArea.LEVELS }, () => Array.from({ length: 13 }, () => new Array(13).fill(-1)));
     private world: World | null = null;
     private mapl: Uint8Array[][] | null = null;
     private groundh: Int32Array[][] | null = null;
@@ -316,6 +319,12 @@ export class Client extends GameShell {
     private backbase2: Pix8 | null = null;
     private backhmid1: Pix8 | null = null;
     private sideicons: (Pix8 | null)[] = new TypedArray1d(13, null);
+    private orbIconHitpointsGraphic: Pix32 | null = null;
+    private orbIconPrayerGraphic: Pix32 | null = null;
+    private orbIconAgilityGraphic: Pix32 | null = null;
+    private orbIconHitpoints: Pix8 | null = null;
+    private orbIconPrayer: Pix8 | null = null;
+    private orbIconAgility: Pix8 | null = null;
     private redstone1: Pix8 | null = null;
     private redstone2: Pix8 | null = null;
     private redstone3: Pix8 | null = null;
@@ -1092,6 +1101,16 @@ export class Client extends GameShell {
             this.backbase2 = Pix8.depack(media, 'backbase2', 0);
             this.backhmid1 = Pix8.depack(media, 'backhmid1', 0);
 
+            try {
+                this.orbIconHitpoints = Pix8.depack(media, 'staticons', 6);
+                this.orbIconPrayer = Pix8.depack(media, 'staticons', 4);
+                this.orbIconAgility = Pix8.depack(media, 'staticons', 7);
+            } catch (_e) {
+                this.orbIconHitpoints = null;
+                this.orbIconPrayer = null;
+                this.orbIconAgility = null;
+            }
+
             for (let i: number = 0; i < 13; i++) {
                 this.sideicons[i] = Pix8.depack(media, 'sideicons', i);
             }
@@ -1257,6 +1276,7 @@ export class Client extends GameShell {
             await this.drawProgress('Unpacking interfaces', 95);
 
             IfType.init(interfaces, media, [this.p11, this.p12, this.b12, this.q8]);
+            this.resolveOrbIconsFromInterfaces();
 
             await this.drawProgress('Preparing game engine', 100);
 
@@ -5574,8 +5594,12 @@ export class Client extends GameShell {
         for (let i = 0; i < this.mapBuildGroundData.length; i++) {
             const data = this.mapBuildLocationData[i];
             if (data != null) {
-                const x = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
-                const z = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
+                let x = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
+                let z = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
+                if (this.mapBuildInstanced) {
+                    x = 10;
+                    z = 10;
+                }
                 if (!ClientBuild.checkLocations(data, x, z)) {
                     ready = false;
                 }
@@ -5635,23 +5659,75 @@ export class Client extends GameShell {
             if (this.mapBuildIndex && this.mapBuildGroundData) {
                 this.out.p1Enc(ClientProt.NO_TIMEOUT);
 
-                for (let i: number = 0; i < maps; i++) {
-                    const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
-                    const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
-                    const data: Uint8Array | null = this.mapBuildGroundData[i];
+                if (!this.mapBuildInstanced) {
+                    for (let i: number = 0; i < maps; i++) {
+                        const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
+                        const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
+                        const data: Uint8Array | null = this.mapBuildGroundData[i];
 
-                    if (data) {
-                        build.loadGround(data, (this.mapBuildCentreZoneX - 6) * 8, (this.mapBuildCentreZoneZ - 6) * 8, x, z);
+                        if (data) {
+                            build.loadGround(data, (this.mapBuildCentreZoneX - 6) * 8, (this.mapBuildCentreZoneZ - 6) * 8, x, z);
+                        }
                     }
-                }
 
-                for (let i: number = 0; i < maps; i++) {
-                    const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
-                    const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
-                    const data: Uint8Array | null = this.mapBuildGroundData[i];
+                    for (let i: number = 0; i < maps; i++) {
+                        const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
+                        const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
+                        const data: Uint8Array | null = this.mapBuildGroundData[i];
 
-                    if (!data && this.mapBuildCentreZoneZ < 800) {
-                        build.fadeAdjacent(z, x, 64, 64);
+                        if (!data && this.mapBuildCentreZoneZ < 800) {
+                            build.fadeAdjacent(z, x, 64, 64);
+                        }
+                    }
+                } else {
+                    let groundTemplates = 0;
+                    const missingGroundRegions: Set<number> = new Set<number>();
+                    for (let level = 0; level < BuildArea.LEVELS; level++) {
+                        for (let chunkX = 0; chunkX < 13; chunkX++) {
+                            for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                                const template = this.mapBuildRegions[level][chunkX][chunkZ];
+                                if (template === -1) {
+                                    continue;
+                                }
+
+                                const sourceLevel = (template >> 24) & 0x3;
+                                const rotation = (template >> 1) & 0x3;
+                                const srcX = (template >> 14) & 0x3ff;
+                                const srcZ = (template >> 3) & 0x7ff;
+                                const region = (((srcX / 8) | 0) << 8) + ((srcZ / 8) | 0);
+
+                                groundTemplates++;
+                                let matched = false;
+                                for (let i = 0; i < maps; i++) {
+                                    if (this.mapBuildIndex[i] !== region) {
+                                        continue;
+                                    }
+
+                                    matched = true;
+                                    const data = this.mapBuildGroundData[i];
+                                    if (data) {
+                                        build.loadGroundRegion(data, level, sourceLevel, (srcX & 0x7) * 8, (srcZ & 0x7) * 8, rotation, chunkX * 8, chunkZ * 8, this.collision);
+                                    }
+                                    break;
+                                }
+
+                                if (!matched) {
+                                    missingGroundRegions.add(region);
+                                }
+                            }
+                        }
+                    }
+
+                    if (Client.debugInstances) {
+                        console.log(`[instances] ground build templates=${groundTemplates} missingRegions=${[...missingGroundRegions].join(',')}`);
+                    }
+
+                    for (let chunkX = 0; chunkX < 13; chunkX++) {
+                        for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                            if (this.mapBuildRegions[0][chunkX][chunkZ] === -1) {
+                                build.fadeAdjacent(chunkZ * 8, chunkX * 8, 8, 8);
+                            }
+                        }
                     }
                 }
             }
@@ -5659,13 +5735,44 @@ export class Client extends GameShell {
             if (this.mapBuildIndex && this.mapBuildLocationData) {
                 this.out.p1Enc(ClientProt.NO_TIMEOUT);
 
-                for (let i: number = 0; i < maps; i++) {
-                    const data: Uint8Array | null = this.mapBuildLocationData[i];
+                if (!this.mapBuildInstanced) {
+                    for (let i: number = 0; i < maps; i++) {
+                        const data: Uint8Array | null = this.mapBuildLocationData[i];
 
-                    if (data) {
-                        const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
-                        const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
-                        build.loadLocations(data, x, z, this.world, this.collision);
+                        if (data) {
+                            const x: number = (this.mapBuildIndex[i] >> 8) * 64 - this.mapBuildBaseX;
+                            const z: number = (this.mapBuildIndex[i] & 0xff) * 64 - this.mapBuildBaseZ;
+                            build.loadLocations(data, x, z, this.world, this.collision);
+                        }
+                    }
+                } else {
+                    for (let level = 0; level < BuildArea.LEVELS; level++) {
+                        for (let chunkX = 0; chunkX < 13; chunkX++) {
+                            for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                                const template = this.mapBuildRegions[level][chunkX][chunkZ];
+                                if (template === -1) {
+                                    continue;
+                                }
+
+                                const sourceLevel = (template >> 24) & 0x3;
+                                const rotation = (template >> 1) & 0x3;
+                                const srcX = (template >> 14) & 0x3ff;
+                                const srcZ = (template >> 3) & 0x7ff;
+                                const region = (((srcX / 8) | 0) << 8) + ((srcZ / 8) | 0);
+
+                                for (let i = 0; i < maps; i++) {
+                                    if (this.mapBuildIndex[i] !== region) {
+                                        continue;
+                                    }
+
+                                    const data = this.mapBuildLocationData[i];
+                                    if (data) {
+                                        build.loadLocationsRegion(data, level, sourceLevel, (srcX & 0x7) * 8, (srcZ & 0x7) * 8, rotation, chunkX * 8, chunkZ * 8, this.world, this.collision);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -7262,9 +7369,53 @@ export class Client extends GameShell {
                 return true;
             }
 
-            if (this.ptype === ServerProt.REBUILD_NORMAL) {
-                const zoneX: number = this.in.g2();
-                const zoneZ: number = this.in.g2();
+            if (this.ptype === ServerProt.REBUILD_NORMAL || this.ptype === ServerProt.REBUILD_REGION) {
+                let zoneX: number = this.mapBuildCentreZoneX;
+                let zoneZ: number = this.mapBuildCentreZoneZ;
+
+                if (this.ptype === ServerProt.REBUILD_NORMAL) {
+                    zoneX = this.in.g2();
+                    zoneZ = this.in.g2();
+                    this.mapBuildInstanced = false;
+                }
+
+                if (this.ptype === ServerProt.REBUILD_REGION) {
+                    zoneX = this.in.g2();
+
+                    this.in.gBitStart();
+                    for (let level = 0; level < BuildArea.LEVELS; level++) {
+                        for (let chunkX = 0; chunkX < 13; chunkX++) {
+                            for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                                if (this.in.gBit(1) === 1) {
+                                    this.mapBuildRegions[level][chunkX][chunkZ] = this.in.gBit(26);
+                                } else {
+                                    this.mapBuildRegions[level][chunkX][chunkZ] = -1;
+                                }
+                            }
+                        }
+                    }
+                    this.in.gBitEnd();
+
+                    zoneZ = this.in.g2();
+                    this.mapBuildInstanced = true;
+
+                    if (Client.debugInstances) {
+                        let templateCount = 0;
+                        for (let level = 0; level < BuildArea.LEVELS; level++) {
+                            for (let chunkX = 0; chunkX < 13; chunkX++) {
+                                for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                                    if (this.mapBuildRegions[level][chunkX][chunkZ] !== -1) {
+                                        templateCount++;
+                                    }
+                                }
+                            }
+                        }
+                        const head: string = Array.from(this.in.data.subarray(0, Math.min(16, this.psize)))
+                            .map((b: number): string => b.toString(16).padStart(2, '0'))
+                            .join(' ');
+                        console.log(`[instances] REBUILD_REGION psize=${this.psize} pos=${this.in.pos} zoneX=${zoneX} zoneZ=${zoneZ} templates=${templateCount} head=${head}`);
+                    }
+                }
 
                 if (this.mapBuildCentreZoneX === zoneX && this.mapBuildCentreZoneZ === zoneZ && this.sceneState === 2) {
                     this.ptype = -1;
@@ -7291,40 +7442,85 @@ export class Client extends GameShell {
                 this.p12?.centreString('Loading - please wait.', 256, 150, Colour.WHITE);
                 this.areaGame?.draw(4, 4);
 
-                let regions = 0;
-                for (let x = ((this.mapBuildCentreZoneX - 6) / 8) | 0; x <= (((this.mapBuildCentreZoneX + 6) / 8) | 0); x++) {
-                    for (let z = ((this.mapBuildCentreZoneZ - 6) / 8) | 0; z <= (((this.mapBuildCentreZoneZ + 6) / 8) | 0); z++) {
-                        regions++;
+                if (this.ptype === ServerProt.REBUILD_NORMAL) {
+                    let regions = 0;
+                    for (let x = ((this.mapBuildCentreZoneX - 6) / 8) | 0; x <= (((this.mapBuildCentreZoneX + 6) / 8) | 0); x++) {
+                        for (let z = ((this.mapBuildCentreZoneZ - 6) / 8) | 0; z <= (((this.mapBuildCentreZoneZ + 6) / 8) | 0); z++) {
+                            regions++;
+                        }
+                    }
+
+                    this.mapBuildGroundData = new TypedArray1d(regions, null);
+                    this.mapBuildLocationData = new TypedArray1d(regions, null);
+                    this.mapBuildIndex = new Int32Array(regions);
+                    this.mapBuildGroundFile = new Array(regions);
+                    this.mapBuildLocationFile = new Array(regions);
+
+                    let mapCount = 0;
+                    for (let x = ((this.mapBuildCentreZoneX - 6) / 8) | 0; x <= (((this.mapBuildCentreZoneX + 6) / 8) | 0); x++) {
+                        for (let z = ((this.mapBuildCentreZoneZ - 6) / 8) | 0; z <= (((this.mapBuildCentreZoneZ + 6) / 8) | 0); z++) {
+                            this.mapBuildIndex[mapCount] = (x << 8) + z;
+
+                            if (this.withinTutorialIsland && (z == 49 || z == 149 || z == 147 || x == 50 || (x == 49 && z == 47))) {
+                                this.mapBuildGroundFile[mapCount] = -1;
+                                this.mapBuildLocationFile[mapCount] = -1;
+                                mapCount++;
+                            } else if (this.onDemand) {
+                                const landFile = (this.mapBuildGroundFile[mapCount] = this.onDemand.getMapFile(x, z, 0));
+                                if (landFile != -1) {
+                                    this.onDemand.request(3, landFile);
+                                }
+
+                                const locFile = (this.mapBuildLocationFile[mapCount] = this.onDemand.getMapFile(x, z, 1));
+                                if (locFile != -1) {
+                                    this.onDemand.request(3, locFile);
+                                }
+
+                                mapCount++;
+                            }
+                        }
                     }
                 }
 
-                this.mapBuildGroundData = new TypedArray1d(regions, null);
-                this.mapBuildLocationData = new TypedArray1d(regions, null);
-                this.mapBuildIndex = new Int32Array(regions);
-                this.mapBuildGroundFile = new Array(regions);
-                this.mapBuildLocationFile = new Array(regions);
+                if (this.ptype === ServerProt.REBUILD_REGION) {
+                    const regionIds: number[] = [];
+                    for (let level = 0; level < BuildArea.LEVELS; level++) {
+                        for (let chunkX = 0; chunkX < 13; chunkX++) {
+                            for (let chunkZ = 0; chunkZ < 13; chunkZ++) {
+                                const template = this.mapBuildRegions[level][chunkX][chunkZ];
+                                if (template !== -1) {
+                                    const srcX = (template >> 14) & 0x3ff;
+                                    const srcZ = (template >> 3) & 0x7ff;
+                                    const region = (((srcX / 8) | 0) << 8) + ((srcZ / 8) | 0);
+                                    if (!regionIds.includes(region)) {
+                                        regionIds.push(region);
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                let mapCount = 0;
-                for (let x = ((this.mapBuildCentreZoneX - 6) / 8) | 0; x <= (((this.mapBuildCentreZoneX + 6) / 8) | 0); x++) {
-                    for (let z = ((this.mapBuildCentreZoneZ - 6) / 8) | 0; z <= (((this.mapBuildCentreZoneZ + 6) / 8) | 0); z++) {
-                        this.mapBuildIndex[mapCount] = (x << 8) + z;
+                    this.mapBuildGroundData = new TypedArray1d(regionIds.length, null);
+                    this.mapBuildLocationData = new TypedArray1d(regionIds.length, null);
+                    this.mapBuildIndex = new Int32Array(regionIds.length);
+                    this.mapBuildGroundFile = new Array(regionIds.length);
+                    this.mapBuildLocationFile = new Array(regionIds.length);
 
-                        if (this.withinTutorialIsland && (z == 49 || z == 149 || z == 147 || x == 50 || (x == 49 && z == 47))) {
-                            this.mapBuildGroundFile[mapCount] = -1;
-                            this.mapBuildLocationFile[mapCount] = -1;
-                            mapCount++;
-                        } else if (this.onDemand) {
-                            const landFile = (this.mapBuildGroundFile[mapCount] = this.onDemand.getMapFile(x, z, 0));
+                    for (let i = 0; i < regionIds.length; i++) {
+                        const region = (this.mapBuildIndex[i] = regionIds[i]);
+                        const x = (region >> 8) & 0xff;
+                        const z = region & 0xff;
+
+                        if (this.onDemand) {
+                            const landFile = (this.mapBuildGroundFile[i] = this.onDemand.getMapFile(x, z, 0));
                             if (landFile != -1) {
                                 this.onDemand.request(3, landFile);
                             }
 
-                            const locFile = (this.mapBuildLocationFile[mapCount] = this.onDemand.getMapFile(x, z, 1));
+                            const locFile = (this.mapBuildLocationFile[i] = this.onDemand.getMapFile(x, z, 1));
                             if (locFile != -1) {
                                 this.onDemand.request(3, locFile);
                             }
-
-                            mapCount++;
                         }
                     }
                 }
@@ -11963,10 +12159,26 @@ export class Client extends GameShell {
 
     private drawStatusBadgeIcon(x: number, y: number, badgeText: string): void {
         const key: string = badgeText.toUpperCase();
-        const scale: number = 1.33;
+        const scale: number = 0.875;
+        const iconX: number = x;
+        const iconY: number = y;
+
+        let icon: Pix8 | null = null;
+        if (key === 'H') {
+            icon = this.orbIconHitpoints;
+        } else if (key === 'P') {
+            icon = this.orbIconPrayer;
+        } else if (key === 'R') {
+            icon = this.orbIconAgility;
+        }
+
+        if (icon) {
+            this.drawPix8IconCanvas(icon, iconX, iconY, scale);
+            return;
+        }
 
         canvas2d.save();
-        canvas2d.translate(x, y);
+        canvas2d.translate(iconX, y);
         canvas2d.scale(scale, scale);
 
         if (key === 'H') {
@@ -12054,6 +12266,181 @@ export class Client extends GameShell {
         canvas2d.fillStyle = '#f2f7f8';
         canvas2d.fillText(key, 0, 0);
         canvas2d.restore();
+    }
+
+    private drawPix8IconCanvas(icon: Pix8, cx: number, cy: number, scale: number): void {
+        const drawW: number = Math.max(1, Math.round(icon.wi * scale));
+        const drawH: number = Math.max(1, Math.round(icon.hi * scale));
+        const spriteW: number = Math.max(1, Math.round(icon.owi * scale));
+        const spriteH: number = Math.max(1, Math.round(icon.ohi * scale));
+        const startX: number = cx - ((spriteW / 2) | 0) + Math.round(icon.xof * scale);
+        const startY: number = cy - ((spriteH / 2) | 0) + Math.round(icon.yof * scale);
+        const sx: number = icon.wi / drawW;
+        const sy: number = icon.hi / drawH;
+
+        for (let y: number = 0; y < drawH; y++) {
+            const srcY: number = (y * sy) | 0;
+            for (let x: number = 0; x < drawW; x++) {
+                const srcX: number = (x * sx) | 0;
+                const palIndex: number = icon.data[srcX + srcY * icon.wi] & 0xff;
+                if (palIndex === 0) {
+                    continue;
+                }
+
+                const rgb: number = icon.bpal[palIndex];
+                const r: number = (rgb >> 16) & 0xff;
+                const g: number = (rgb >> 8) & 0xff;
+                const b: number = rgb & 0xff;
+                canvas2d.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                canvas2d.fillRect(startX + x, startY + y, 1, 1);
+            }
+        }
+    }
+
+    private drawPix32IconCanvas(icon: Pix32, cx: number, cy: number, scale: number): void {
+        const drawW: number = Math.max(1, Math.round(icon.wi * scale));
+        const drawH: number = Math.max(1, Math.round(icon.hi * scale));
+        const startX: number = cx - ((drawW / 2) | 0);
+        const startY: number = cy - ((drawH / 2) | 0);
+        const sx: number = icon.wi / drawW;
+        const sy: number = icon.hi / drawH;
+
+        for (let y: number = 0; y < drawH; y++) {
+            const srcY: number = (y * sy) | 0;
+            for (let x: number = 0; x < drawW; x++) {
+                const srcX: number = (x * sx) | 0;
+                const rgb: number = icon.data[srcX + srcY * icon.wi];
+                if (rgb === 0) {
+                    continue;
+                }
+
+                const r: number = (rgb >> 16) & 0xff;
+                const g: number = (rgb >> 8) & 0xff;
+                const b: number = rgb & 0xff;
+                canvas2d.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                canvas2d.fillRect(startX + x, startY + y, 1, 1);
+            }
+        }
+    }
+
+    private resolveOrbIconsFromInterfaces(): void {
+        this.orbIconHitpointsGraphic = null;
+        this.orbIconPrayerGraphic = null;
+        this.orbIconAgilityGraphic = null;
+    }
+
+    private findStatGraphicIcon(skill: number, allowedLayers: Set<number>): Pix32 | null {
+        let bestGraphic: Pix32 | null = null;
+        let bestDistance: number = Number.MAX_SAFE_INTEGER;
+
+        for (let i: number = 0; i < IfType.list.length; i++) {
+            const textCom: IfType | null = IfType.list[i];
+            if (!textCom || textCom.type !== ComponentType.TYPE_TEXT || textCom.layerId < 0) {
+                continue;
+            }
+
+            if (allowedLayers.size > 0 && !allowedLayers.has(textCom.layerId)) {
+                continue;
+            }
+
+            if (!this.hasStatLevelScript(textCom, skill)) {
+                continue;
+            }
+
+            const anchored = this.findAnchoredGraphicInLayer(textCom.layerId, textCom.x, textCom.y);
+            if (anchored) {
+                return anchored;
+            }
+
+            const result = this.findNearestGraphicInLayer(textCom.layerId, textCom.x, textCom.y);
+            if (!result) {
+                continue;
+            }
+
+            if (result.distance < bestDistance) {
+                bestDistance = result.distance;
+                bestGraphic = result.graphic;
+            }
+        }
+
+        return bestGraphic;
+    }
+
+    private findAnchoredGraphicInLayer(layerId: number, textX: number, textY: number): Pix32 | null {
+        // In the stats/prayer interfaces, the icon sits directly left of the stat text:
+        // approximately dx=28 and same y (or very close).
+        let bestGraphic: Pix32 | null = null;
+        let bestScore: number = Number.MAX_SAFE_INTEGER;
+
+        for (let i: number = 0; i < IfType.list.length; i++) {
+            const graphicCom: IfType | null = IfType.list[i];
+            if (!graphicCom || graphicCom.type !== ComponentType.TYPE_GRAPHIC || graphicCom.layerId !== layerId || !graphicCom.graphic) {
+                continue;
+            }
+
+            const dx: number = textX - graphicCom.x;
+            const dy: number = Math.abs(textY - graphicCom.y);
+
+            if (dx < 20 || dx > 36 || dy > 4) {
+                continue;
+            }
+
+            const score: number = Math.abs(dx - 28) + dy * 3;
+            if (score < bestScore) {
+                bestScore = score;
+                bestGraphic = graphicCom.graphic;
+            }
+        }
+
+        return bestGraphic;
+    }
+
+    private hasStatLevelScript(com: IfType, skill: number): boolean {
+        if (!com.scripts) {
+            return false;
+        }
+
+        for (let i: number = 0; i < com.scripts.length; i++) {
+            const script: Uint16Array | null = com.scripts[i];
+            if (!script) {
+                continue;
+            }
+
+            for (let pc: number = 0; pc < script.length - 1; pc++) {
+                if (script[pc] === 1 && script[pc + 1] === skill) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private findNearestGraphicInLayer(layerId: number, x: number, y: number): { graphic: Pix32; distance: number } | null {
+        let bestGraphic: Pix32 | null = null;
+        let bestDistance: number = Number.MAX_SAFE_INTEGER;
+
+        for (let i: number = 0; i < IfType.list.length; i++) {
+            const graphicCom: IfType | null = IfType.list[i];
+            if (!graphicCom || graphicCom.type !== ComponentType.TYPE_GRAPHIC || graphicCom.layerId !== layerId || !graphicCom.graphic) {
+                continue;
+            }
+
+            const dx: number = graphicCom.x - x;
+            const dy: number = graphicCom.y - y;
+            const distance: number = dx * dx + dy * dy;
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestGraphic = graphicCom.graphic;
+            }
+        }
+
+        if (!bestGraphic) {
+            return null;
+        }
+
+        return { graphic: bestGraphic, distance: bestDistance };
     }
 
     private rgbToCss(rgb: number): string {
