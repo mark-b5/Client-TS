@@ -89,6 +89,8 @@ export class Client extends GameShell {
     static nodeId: number = 10;
     static memServer: boolean = true;
     static lowMem: boolean = false;
+    static hideGroundDecor: boolean = false;
+    static hideRoofs: boolean = false;
     static debugInstances: boolean = false;
 
     static cyclelogic1: number = 0;
@@ -117,6 +119,12 @@ export class Client extends GameShell {
     static drawCycle: number = 0;
     static readonly CAMERA_PITCH_MIN: number = 0;
     static readonly CAMERA_PITCH_MAX: number = 512;
+    static readonly CAMERA_DISTANCE_DEFAULT: number = 600;
+    static readonly CAMERA_DISTANCE_MIN: number = 150;
+    static readonly CAMERA_DISTANCE_MAX: number = 2100;
+    static readonly CAMERA_DISTANCE_STEP: number = 125;
+    static readonly CAMERA_ZOOM_RENDER_START: number = Client.CAMERA_DISTANCE_DEFAULT;
+    static readonly CAMERA_ZOOM_RENDER_RANGE: number = Client.CAMERA_DISTANCE_MAX - Client.CAMERA_DISTANCE_DEFAULT;
 
     static CHARSET: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"£$%^&*()-_=+[{]};:\'@#~,<.>/?\\| ';
 
@@ -361,7 +369,7 @@ export class Client extends GameShell {
     private orbitCameraPitchVelocity: number = 0;
     private orbitCameraX: number = 0;
     private orbitCameraZ: number = 0;
-    private cameraDistance: number = 600;
+    private cameraDistance: number = Client.CAMERA_DISTANCE_DEFAULT;
     private sendCameraDelay: number = 0;
     private sendCamera: boolean = false;
     private cameraPitchClamp: number = 0;
@@ -601,10 +609,13 @@ export class Client extends GameShell {
     }
 
     static setLowMem(): void {
-        World.lowMem = true;
-        Pix3D.lowMem = true;
-        Client.lowMem = true;
-        ClientBuild.lowMem = true;
+        World.lowMem = false;
+        Pix3D.lowMem = false;
+        Client.lowMem = false;
+        ClientBuild.lowMem = false;
+        Client.hideGroundDecor = true;
+        Client.hideRoofs = true;
+        ClientBuild.hideGroundDecor = true;
     }
 
     static setHighMem(): void {
@@ -612,6 +623,9 @@ export class Client extends GameShell {
         Pix3D.lowMem = false;
         Client.lowMem = false;
         ClientBuild.lowMem = false;
+        Client.hideGroundDecor = false;
+        Client.hideRoofs = false;
+        ClientBuild.hideGroundDecor = false;
     }
 
     saveMidi(data: Uint8Array, fading: boolean) {
@@ -4345,8 +4359,8 @@ export class Client extends GameShell {
         Model.mouseY = this.mouseY - 4;
 
         Pix2D.cls();
-        const zoomOutDistance = Math.max(0, this.cameraDistance - 600);
-        const zoomOutRatio = Math.min(1.0, zoomOutDistance / 1200.0);
+        const zoomOutDistance = Math.max(0, this.cameraDistance - Client.CAMERA_ZOOM_RENDER_START);
+        const zoomOutRatio = Math.min(1.0, zoomOutDistance / Client.CAMERA_ZOOM_RENDER_RANGE);
         const renderRadius = 25 + ((zoomOutRatio * 20.0) | 0);
         const maxDrawDistance = 3500 + ((zoomOutRatio * 6500.0) | 0);
         Model.maxDrawDistance = maxDrawDistance;
@@ -4453,8 +4467,9 @@ export class Client extends GameShell {
 
     private addNpcs(alwaysontop: boolean): void {
         for (let i: number = 0; i < this.npcCount; i++) {
-            const npc: ClientNpc | null = this.npc[this.npcIds[i]];
-            const typecode: number = ((this.npcIds[i] << 14) + 0x20000000) | 0;
+            const npcId: number = this.npcIds[i];
+            const npc: ClientNpc | null = this.npc[npcId];
+            const typecode: number = ((npcId << 14) + 0x20000000) | 0;
 
             if (!npc || !npc.isReady() || npc.type?.alwaysontop !== alwaysontop) {
                 continue;
@@ -4595,11 +4610,19 @@ export class Client extends GameShell {
             return 0; // custom
         }
 
+        if (Client.hideRoofs) {
+            return this.minusedlevel;
+        }
+
         const y: number = this.getAvH(this.camX, this.camZ, this.minusedlevel);
         return y - this.camY >= 800 || (this.mapl[this.minusedlevel][this.camX >> 7][this.camZ >> 7] & MapFlag.RemoveRoof) === 0 ? 3 : this.minusedlevel;
     }
 
     private roofCheck(): number {
+        if (Client.hideRoofs) {
+            return this.minusedlevel;
+        }
+
         let top: number = 3;
 
         if (this.camPitch < 310 && this.localPlayer) {
@@ -7718,16 +7741,16 @@ export class Client extends GameShell {
             }
 
             if (this.ptype === ServerProt.UPDATE_ZONE_PARTIAL_FOLLOWS) {
-                this.zoneUpdateX = this.in.g1();
-                this.zoneUpdateZ = this.in.g1();
+                this.zoneUpdateX = this.in.g1b();
+                this.zoneUpdateZ = this.in.g1b();
 
                 this.ptype = -1;
                 return true;
             }
 
             if (this.ptype === ServerProt.UPDATE_ZONE_FULL_FOLLOWS) {
-                this.zoneUpdateX = this.in.g1();
-                this.zoneUpdateZ = this.in.g1();
+                this.zoneUpdateX = this.in.g1b();
+                this.zoneUpdateZ = this.in.g1b();
 
                 for (let x: number = this.zoneUpdateX; x < this.zoneUpdateX + 8; x++) {
                     for (let z: number = this.zoneUpdateZ; z < this.zoneUpdateZ + 8; z++) {
@@ -7749,8 +7772,8 @@ export class Client extends GameShell {
             }
 
             if (this.ptype === ServerProt.UPDATE_ZONE_PARTIAL_ENCLOSED) {
-                this.zoneUpdateX = this.in.g1();
-                this.zoneUpdateZ = this.in.g1();
+                this.zoneUpdateX = this.in.g1b();
+                this.zoneUpdateZ = this.in.g1b();
 
                 while (this.in.pos < this.psize) {
                     const opcode: number = this.in.g1();
@@ -7858,7 +7881,8 @@ export class Client extends GameShell {
                 } else if (layer == 1) {
                     const decor = this.world.getDecor(this.minusedlevel, z, x);
                     if (decor) {
-                        decor.model = new ClientLocAnim((decor.typecode >> 14) & 0x7fff, 4, 0, heightSW, heightNE, heightNE, heightNW, seq, false);
+                        const locId = (decor.typecode >> 14) & 0x7fff;
+                        decor.model = new ClientLocAnim(locId, 4, 0, heightSW, heightNE, heightNE, heightNW, seq, false);
                     }
                 } else if (layer == 2) {
                     const sprite = this.world.getScene(this.minusedlevel, x, z);
@@ -7867,12 +7891,14 @@ export class Client extends GameShell {
                     }
 
                     if (sprite) {
-                        sprite.model = new ClientLocAnim((sprite.typecode >> 14) & 0x7fff, shape, rotate, heightSW, heightSE, heightNE, heightNW, seq, false);
+                        const locId = (sprite.typecode >> 14) & 0x7fff;
+                        sprite.model = new ClientLocAnim(locId, shape, rotate, heightSW, heightSE, heightNE, heightNW, seq, false);
                     }
                 } else if (layer == 3) {
                     const decor = this.world.getGd(this.minusedlevel, x, z);
                     if (decor) {
-                        decor.model = new ClientLocAnim((decor.typecode >> 14) & 0x7fff, 22, rotate, heightSW, heightSE, heightNE, heightNW, seq, false);
+                        const locId = (decor.typecode >> 14) & 0x7fff;
+                        decor.model = new ClientLocAnim(locId, 22, rotate, heightSW, heightSE, heightNE, heightNW, seq, false);
                     }
                 }
             }
@@ -8049,7 +8075,7 @@ export class Client extends GameShell {
     private locChangeCreate(level: number, x: number, z: number, layer: number, type: number, shape: number, angle: number, startTime: number, endTime: number): void {
         let loc: LocChange | null = null;
         for (let next = this.locChanges.head(); next !== null; next = this.locChanges.next()) {
-            if (next.level === this.minusedlevel && next.x === x && next.z === z && next.layer === layer) {
+            if (next.level === level && next.x === x && next.z === z && next.layer === layer) {
                 loc = next;
                 break;
             }
@@ -10876,8 +10902,8 @@ export class Client extends GameShell {
                     model = child.getTempModel(-1, -1, active, this.localPlayer);
                 } else {
                     const seq: SeqType = SeqType.list[seqId];
-                    if (seq.frames && seq.iframes) {
-                        model = child.getTempModel(seq.frames[child.animFrame], seq.iframes[child.animFrame], active, this.localPlayer);
+                    if (seq.frames) {
+                        model = child.getTempModel(seq.frames[child.animFrame], -1, active, this.localPlayer);
                     }
                 }
 
@@ -12953,9 +12979,9 @@ export class Client extends GameShell {
         }
 
         if (e.deltaY < 0) {
-            this.cameraDistance = Math.max(150, this.cameraDistance - 100);
+            this.cameraDistance = Math.max(Client.CAMERA_DISTANCE_MIN, this.cameraDistance - Client.CAMERA_DISTANCE_STEP);
         } else if (e.deltaY > 0) {
-            this.cameraDistance = Math.min(1800, this.cameraDistance + 100);
+            this.cameraDistance = Math.min(Client.CAMERA_DISTANCE_MAX, this.cameraDistance + Client.CAMERA_DISTANCE_STEP);
         }
 
         this.redrawFrame = true;

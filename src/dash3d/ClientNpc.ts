@@ -76,6 +76,9 @@ export default class ClientNpc extends ClientEntity {
             let secondaryTransform = -1;
             if (this.secondaryAnim >= 0 && secondarySeq.frames) {
                 secondaryTransform = secondarySeq.frames[this.secondaryAnimFrame];
+                if (secondaryTransform !== -1 && AnimFrame.get(secondaryTransform) == null) {
+                    secondaryTransform = -1;
+                }
             }
 
             return this.type.getTempModel(secondaryTransform, -1, null);
@@ -84,12 +87,18 @@ export default class ClientNpc extends ClientEntity {
             let primaryTransform = -1;
             if (primarySeq.frames) {
                 primaryTransform = primarySeq.frames[this.primaryAnimFrame];
+                if (primaryTransform !== -1 && AnimFrame.get(primaryTransform) == null) {
+                    primaryTransform = -1;
+                }
             }
 
             const secondarySeq = SeqType.list[this.secondaryAnim];
             let secondaryTransform = -1;
             if (this.secondaryAnim >= 0 && this.secondaryAnim != this.readyanim && secondarySeq.frames) {
                 secondaryTransform = secondarySeq.frames[this.secondaryAnimFrame];
+                if (secondaryTransform !== -1 && AnimFrame.get(secondaryTransform) == null) {
+                    secondaryTransform = -1;
+                }
             }
 
             return this.type.getTempModel(primaryTransform, secondaryTransform, primarySeq.walkmerge);

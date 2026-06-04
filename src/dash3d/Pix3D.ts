@@ -325,11 +325,7 @@ export default class Pix3D extends Pix2D {
         return (intR << 16) + (intG << 8) + intB;
     }
 
-    static gouraudTriangle(
-        xA: number, xB: number, xC: number,
-        yA: number, yB: number, yC: number,
-        colourA: number, colourB: number, colourC: number
-    ): void {
+    static gouraudTriangle(xA: number, xB: number, xC: number, yA: number, yB: number, yC: number, colourA: number, colourB: number, colourC: number): void {
         let xStepAB: number = 0;
         let colourStepAB: number = 0;
         if (yB !== yA) {
@@ -900,11 +896,7 @@ export default class Pix3D extends Pix2D {
         }
     }
 
-    private static gouraudRaster(
-        xA: number, xB: number,
-        colourA: number, colourB: number,
-        dst: Int32Array, off: number, len: number
-    ): void {
+    private static gouraudRaster(xA: number, xB: number, colourA: number, colourB: number, dst: Int32Array, off: number, len: number): void {
         let rgb: number;
 
         if (this.lowDetail) {
@@ -1050,11 +1042,7 @@ export default class Pix3D extends Pix2D {
         }
     }
 
-    static flatTriangle(
-        xA: number, xB: number, xC: number,
-        yA: number, yB: number, yC: number,
-        colour: number
-    ): void {
+    static flatTriangle(xA: number, xB: number, xC: number, yA: number, yB: number, yC: number, colour: number): void {
         let xStepAB: number = 0;
         if (yB !== yA) {
             xStepAB = (((xB - xA) << 16) / (yB - yA)) | 0;
@@ -1541,11 +1529,7 @@ export default class Pix3D extends Pix2D {
         }
     }
 
-    private static flatRaster(
-        xA: number, xB: number,
-        dst: Int32Array, off: number,
-        colour: number
-    ): void {
+    private static flatRaster(xA: number, xB: number, dst: Int32Array, off: number, colour: number): void {
         if (this.hclip) {
             if (xB > Pix2D.sizeX) {
                 xB = Pix2D.sizeX;
@@ -1617,13 +1601,24 @@ export default class Pix3D extends Pix2D {
     }
 
     static textureTriangle(
-        xA: number, xB: number, xC: number,
-        yA: number, yB: number, yC: number,
-        shadeA: number, shadeB: number, shadeC: number,
-        originX: number, originY: number, originZ: number,
-        txB: number, txC: number,
-        tyB: number, tyC: number,
-        tzB: number, tzC: number,
+        xA: number,
+        xB: number,
+        xC: number,
+        yA: number,
+        yB: number,
+        yC: number,
+        shadeA: number,
+        shadeB: number,
+        shadeC: number,
+        originX: number,
+        originY: number,
+        originZ: number,
+        txB: number,
+        txC: number,
+        tyB: number,
+        tyC: number,
+        tzB: number,
+        tzC: number,
         texture: number
     ): void {
         const texels: Int32Array | null = this.getTexels(texture);
@@ -2412,13 +2407,21 @@ export default class Pix3D extends Pix2D {
     }
 
     private static textureRaster(
-        xA: number, xB: number,
-        dst: Int32Array, off: number,
+        xA: number,
+        xB: number,
+        dst: Int32Array,
+        off: number,
         texels: Int32Array | null,
-        curU: number, curV: number,
-        u: number, v: number, w: number,
-        uStride: number, vStride: number, wStride: number,
-        shadeA: number, shadeB: number
+        curU: number,
+        curV: number,
+        u: number,
+        v: number,
+        w: number,
+        uStride: number,
+        vStride: number,
+        wStride: number,
+        shadeA: number,
+        shadeB: number
     ): void {
         if (!texels) {
             return;

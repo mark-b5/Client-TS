@@ -6,9 +6,11 @@ export default class FloType {
     static list: FloType[] = [];
 
     colour: number = 0;
+    mapcolour: number = -1;
     texture: number = -1;
     overlay: boolean = false;
     occlude: boolean = true;
+    showunderlay: boolean = false;
     debugname: string = '';
 
     hue: number = 0;
@@ -18,6 +20,10 @@ export default class FloType {
     chroma: number = 0;
     underlayHue: number = 0;
     overlayHsl: number = 0;
+    mapHue: number = 0;
+    mapSaturation: number = 0;
+    mapLightness: number = 0;
+    mapOverlayHsl: number = 0;
 
     static init(config: JagFile): void {
         const dat: Packet = new Packet(config.read('flo.dat'));
@@ -44,12 +50,21 @@ export default class FloType {
             if (code === 1) {
                 this.colour = dat.g3();
                 this.getHsl(this.colour);
+            } else if (code === 8) {
+                this.mapcolour = dat.g3();
+                const mapHsl = this.getHslValues(this.mapcolour);
+                this.mapHue = mapHsl.hue;
+                this.mapSaturation = mapHsl.saturation;
+                this.mapLightness = mapHsl.lightness;
+                this.mapOverlayHsl = FloType.packHsl(mapHsl.hue, mapHsl.saturation, mapHsl.lightness);
             } else if (code === 2) {
                 this.texture = dat.g1();
             } else if (code === 3) {
                 this.overlay = true;
             } else if (code === 5) {
                 this.occlude = false;
+            } else if (code === 7) {
+                this.showunderlay = true;
             } else if (code === 6) {
                 this.debugname = dat.gjstr();
             } else {
@@ -59,6 +74,17 @@ export default class FloType {
     }
 
     private getHsl(rgb: number): void {
+        const hsl = this.getHslValues(rgb);
+
+        this.hue = hsl.hue;
+        this.saturation = hsl.saturation;
+        this.lightness = hsl.lightness;
+        this.chroma = hsl.chroma;
+        this.underlayHue = hsl.underlayHue;
+        this.overlayHsl = FloType.randomizeOverlayHsl(hsl.hue, hsl.saturation, hsl.lightness);
+    }
+
+    private getHslValues(rgb: number): { hue: number; saturation: number; lightness: number; chroma: number; underlayHue: number; overlayHsl: number } {
         const red: number = ((rgb >> 16) & 0xff) / 256.0;
         const green: number = ((rgb >> 8) & 0xff) / 256.0;
         const blue: number = (rgb & 0xff) / 256.0;
@@ -102,56 +128,84 @@ export default class FloType {
 
         h /= 6.0;
 
-        this.hue = (h * 256.0) | 0;
-        this.saturation = (s * 256.0) | 0;
-        this.lightness = (l * 256.0) | 0;
-
-        if (this.saturation < 0) {
-            this.saturation = 0;
-        } else if (this.saturation > 255) {
-            this.saturation = 255;
-        }
-
-        if (this.lightness < 0) {
-            this.lightness = 0;
-        } else if (this.lightness > 255) {
-            this.lightness = 255;
-        }
-
-        if (l > 0.5) {
-            this.chroma = ((1.0 - l) * s * 512.0) | 0;
-        } else {
-            this.chroma = (l * s * 512.0) | 0;
-        }
-
-        if (this.chroma < 1) {
-            this.chroma = 1;
-        }
-
-        this.underlayHue = (h * this.chroma) | 0;
-
-        let hue: number = this.hue + ((Math.random() * 16.0) | 0) - 8;
-        if (hue < 0) {
-            hue = 0;
-        } else if (hue > 255) {
-            hue = 255;
-        }
-
-        let saturation: number = this.saturation + ((Math.random() * 48.0) | 0) - 24;
+        let hue: number = (h * 256.0) | 0;
+        let saturation: number = (s * 256.0) | 0;
+        let lightness: number = (l * 256.0) | 0;
         if (saturation < 0) {
             saturation = 0;
         } else if (saturation > 255) {
             saturation = 255;
         }
 
-        let lightness: number = this.lightness + ((Math.random() * 48.0) | 0) - 24;
         if (lightness < 0) {
             lightness = 0;
         } else if (lightness > 255) {
             lightness = 255;
         }
 
-        this.overlayHsl = FloType.getTable(hue, saturation, lightness);
+        let chroma: number;
+        if (l > 0.5) {
+            chroma = ((1.0 - l) * s * 512.0) | 0;
+        } else {
+            chroma = (l * s * 512.0) | 0;
+        }
+
+        if (chroma < 1) {
+            chroma = 1;
+        }
+
+        return {
+            hue,
+            saturation,
+            lightness,
+            chroma,
+            underlayHue: (h * chroma) | 0,
+            overlayHsl: FloType.packHsl(hue, saturation, lightness)
+        };
+    }
+
+    private static packHsl(hue: number, saturation: number, lightness: number): number {
+        let packedSaturation = saturation;
+
+        if (lightness > 179) {
+            packedSaturation = packedSaturation >> 1;
+        }
+        if (lightness > 192) {
+            packedSaturation = packedSaturation >> 1;
+        }
+        if (lightness > 217) {
+            packedSaturation = packedSaturation >> 1;
+        }
+        if (lightness > 243) {
+            packedSaturation = packedSaturation >> 1;
+        }
+
+        return (((hue / 4) | 0) << 10) + (((packedSaturation / 32) | 0) << 7) + ((lightness / 2) | 0);
+    }
+
+    private static randomizeOverlayHsl(hue: number, saturation: number, lightness: number): number {
+        let randomizedHue: number = hue + ((Math.random() * 16.0) | 0) - 8;
+        if (randomizedHue < 0) {
+            randomizedHue = 0;
+        } else if (randomizedHue > 255) {
+            randomizedHue = 255;
+        }
+
+        let randomizedSaturation: number = saturation + ((Math.random() * 48.0) | 0) - 24;
+        if (randomizedSaturation < 0) {
+            randomizedSaturation = 0;
+        } else if (randomizedSaturation > 255) {
+            randomizedSaturation = 255;
+        }
+
+        let randomizedLightness: number = lightness + ((Math.random() * 48.0) | 0) - 24;
+        if (randomizedLightness < 0) {
+            randomizedLightness = 0;
+        } else if (randomizedLightness > 255) {
+            randomizedLightness = 255;
+        }
+
+        return FloType.getTable(randomizedHue, randomizedSaturation, randomizedLightness);
     }
 
     static getTable(hue: number, saturation: number, lightness: number): number {

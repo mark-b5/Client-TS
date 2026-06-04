@@ -83,7 +83,7 @@ export default class Model extends ModelSource {
     // lit model
 
     static tempModel: Model = new Model();
-    static tempFTran: Int32Array = new Int32Array(2000);
+    static tempFTran: Int32Array = new Int32Array(4096);
 
     faceColourA: Int32Array | null = null;
     faceColourB: Int32Array | null = null;
@@ -108,9 +108,9 @@ export default class Model extends ModelSource {
     static tmpDepthFaceCount: Int32Array = new Int32Array(1500);
     static tmpDepthFaces: Int32Array[] = new Int32Array2d(1500, 512);
     static tmpPriorityFaceCount: Int32Array = new Int32Array(12);
-    static tmpPriorityFaces: Int32Array[] = new Int32Array2d(12, 2000);
-    static tmpPriority10FaceDepth: Int32Array = new Int32Array(2000);
-    static tmpPriority11FaceDepth: Int32Array = new Int32Array(2000);
+    static tmpPriorityFaces: Int32Array[] = new Int32Array2d(12, 4096);
+    static tmpPriority10FaceDepth: Int32Array = new Int32Array(4096);
+    static tmpPriority11FaceDepth: Int32Array = new Int32Array(4096);
     static tmpPriorityDepthSum: Int32Array = new Int32Array(12);
 
     static clippedX: Int32Array = new Int32Array(10);
@@ -1565,7 +1565,7 @@ export default class Model extends ModelSource {
         }
     }
 
-    light(ambient: number, contrast: number, x: number, y: number, z: number): void {
+    light(ambient: number, contrast: number, x: number, y: number, z: number, preserveNormals: boolean = false): void {
         for (let f: number = 0; f < this.numFaces; f++) {
             const a: number = this.faceVertexA![f];
             const b: number = this.faceVertexB![f];
@@ -1609,8 +1609,10 @@ export default class Model extends ModelSource {
             }
         }
 
-        this.pointNormal = null;
-        this.sharedPointNormal = null;
+        if (!preserveNormals) {
+            this.pointNormal = null;
+            this.sharedPointNormal = null;
+        }
         this.vertexLabel = null;
         this.faceLabel = null;
 
@@ -1663,6 +1665,10 @@ export default class Model extends ModelSource {
         const cosEyePitch: number = Pix3D.cosTable[eyePitch];
 
         const midZ: number = (eyeY * sinEyePitch + eyeZ * cosEyePitch) >> 16;
+        let clipped: boolean = false;
+        let behindCount: number = 0;
+        let minViewZ: number = Number.MAX_SAFE_INTEGER;
+        let maxViewZ: number = Number.MIN_SAFE_INTEGER;
 
         for (let v: number = 0; v < this.numPoints; v++) {
             let x: number = this.pointX![v];
@@ -1696,20 +1702,31 @@ export default class Model extends ModelSource {
             z = (y * sinEyePitch + z * cosEyePitch) >> 16;
             y = tmp;
 
-            Model.vertexScreenZ[v] = z - midZ;
-            Model.vertexScreenX[v] = Pix3D.originX + (((x << 9) / z) | 0);
-            Model.vertexScreenY[v] = Pix3D.originY + (((y << 9) / z) | 0);
-
-            if (this.numT > 0) {
-                Model.vertexViewSpaceX[v] = x;
-                Model.vertexViewSpaceY[v] = y;
-                Model.vertexViewSpaceZ[v] = z;
+            if (z < minViewZ) {
+                minViewZ = z;
             }
+            if (z > maxViewZ) {
+                maxViewZ = z;
+            }
+
+            Model.vertexScreenZ[v] = z - midZ;
+            if (z >= 50) {
+                Model.vertexScreenX[v] = Pix3D.originX + (((x << 9) / z) | 0);
+                Model.vertexScreenY[v] = Pix3D.originY + (((y << 9) / z) | 0);
+            } else {
+                Model.vertexScreenX[v] = -5000;
+                clipped = true;
+                behindCount++;
+            }
+
+            Model.vertexViewSpaceX[v] = x;
+            Model.vertexViewSpaceY[v] = y;
+            Model.vertexViewSpaceZ[v] = z;
         }
 
         try {
             // try catch for example a model being drawn from 3d can crash like at baxtorian falls
-            this.render2(false, false, 0);
+            this.render2(clipped, false, 0);
         } catch (_e) {
             // empty
         }

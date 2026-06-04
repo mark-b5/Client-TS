@@ -87,6 +87,11 @@ const VIS_MAP_SIZE = VIS_CENTER * 2 + 1;
 const VIS_BUILD_SIZE = VIS_MAP_SIZE + 2;
 const BASE_FAR_PLANE = 3500;
 const MAX_FAR_PLANE = 12000;
+const DEFAULT_LIGHT_AMBIENT = 64;
+const DEFAULT_LIGHT_CONTRAST = 768;
+const DEFAULT_LIGHT_SRC_X = -50;
+const DEFAULT_LIGHT_SRC_Y = -10;
+const DEFAULT_LIGHT_SRC_Z = -50;
 
 export default class World {
     static lowMem: boolean = true;
@@ -613,27 +618,53 @@ export default class World {
                         if (wall.model2 && wall.model2.pointNormal) {
                             this.shareLightLoc(level, tileX, tileZ, 1, 1, wall.model2 as Model);
                             this.modelShareLight(wall.model1 as Model, wall.model2 as Model, 0, 0, 0, false);
-                            (wall.model2 as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ);
+                            (wall.model2 as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ, true);
                         }
-                        (wall.model1 as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ);
+                        (wall.model1 as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ, true);
                     }
 
                     for (let i: number = 0; i < tile.spriteCount; i++) {
                         const sprite: Sprite | null = tile.sprites[i];
                         if (sprite && sprite.model && sprite.model.pointNormal) {
                             this.shareLightLoc(level, tileX, tileZ, sprite.maxTileX + 1 - sprite.minTileX, sprite.maxTileZ - sprite.minTileZ + 1, sprite.model as Model);
-                            (sprite.model as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ);
+                            (sprite.model as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ, true);
                         }
                     }
 
                     const decor: GroundDecor | null = tile.groundDecor;
                     if (decor && decor.model && decor.model.pointNormal) {
                         this.shareLightGd(level, tileX, tileZ, decor.model as Model);
-                        (decor.model as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ);
+                        (decor.model as Model).light(ambient, attenuation, lightSrcX, lightSrcY, lightSrcZ, true);
                     }
                 }
             }
         }
+    }
+
+    relightRuntimeScenery(level: number, tileX: number, tileZ: number, tileSizeX: number, tileSizeZ: number, model: Model): void {
+        const lightMagnitude: number = Math.sqrt(DEFAULT_LIGHT_SRC_X * DEFAULT_LIGHT_SRC_X + DEFAULT_LIGHT_SRC_Y * DEFAULT_LIGHT_SRC_Y + DEFAULT_LIGHT_SRC_Z * DEFAULT_LIGHT_SRC_Z) | 0;
+        const attenuation: number = (DEFAULT_LIGHT_CONTRAST * lightMagnitude) >> 8;
+        this.shareLightLoc(level, tileX, tileZ, tileSizeX, tileSizeZ, model);
+        model.light(DEFAULT_LIGHT_AMBIENT, attenuation, DEFAULT_LIGHT_SRC_X, DEFAULT_LIGHT_SRC_Y, DEFAULT_LIGHT_SRC_Z, true);
+    }
+
+    relightRuntimeWall(level: number, tileX: number, tileZ: number, model1: Model, model2: Model | null = null): void {
+        const lightMagnitude: number = Math.sqrt(DEFAULT_LIGHT_SRC_X * DEFAULT_LIGHT_SRC_X + DEFAULT_LIGHT_SRC_Y * DEFAULT_LIGHT_SRC_Y + DEFAULT_LIGHT_SRC_Z * DEFAULT_LIGHT_SRC_Z) | 0;
+        const attenuation: number = (DEFAULT_LIGHT_CONTRAST * lightMagnitude) >> 8;
+        this.shareLightLoc(level, tileX, tileZ, 1, 1, model1);
+        if (model2 && model2.pointNormal) {
+            this.shareLightLoc(level, tileX, tileZ, 1, 1, model2);
+            this.modelShareLight(model1, model2, 0, 0, 0, false);
+            model2.light(DEFAULT_LIGHT_AMBIENT, attenuation, DEFAULT_LIGHT_SRC_X, DEFAULT_LIGHT_SRC_Y, DEFAULT_LIGHT_SRC_Z, true);
+        }
+        model1.light(DEFAULT_LIGHT_AMBIENT, attenuation, DEFAULT_LIGHT_SRC_X, DEFAULT_LIGHT_SRC_Y, DEFAULT_LIGHT_SRC_Z, true);
+    }
+
+    relightRuntimeGroundDecor(level: number, tileX: number, tileZ: number, model: Model): void {
+        const lightMagnitude: number = Math.sqrt(DEFAULT_LIGHT_SRC_X * DEFAULT_LIGHT_SRC_X + DEFAULT_LIGHT_SRC_Y * DEFAULT_LIGHT_SRC_Y + DEFAULT_LIGHT_SRC_Z * DEFAULT_LIGHT_SRC_Z) | 0;
+        const attenuation: number = (DEFAULT_LIGHT_CONTRAST * lightMagnitude) >> 8;
+        this.shareLightGd(level, tileX, tileZ, model);
+        model.light(DEFAULT_LIGHT_AMBIENT, attenuation, DEFAULT_LIGHT_SRC_X, DEFAULT_LIGHT_SRC_Y, DEFAULT_LIGHT_SRC_Z, true);
     }
 
     shareLightGd(level: number, tileX: number, tileZ: number, model: Model): void {

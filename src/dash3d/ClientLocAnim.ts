@@ -30,11 +30,11 @@ export default class ClientLocAnim extends ModelSource {
         this.heightNE = heightNE;
         this.heightNW = heightNW;
 
-        this.anim = SeqType.list[seq];
+        this.anim = SeqType.list[seq] ?? null;
         this.animFrame = 0;
         this.animCycle = Client.loopCycle;
 
-        if (randomFrame && this.anim.loops !== -1) {
+        if (randomFrame && this.anim && this.anim.loops !== -1) {
             this.animFrame = (Math.random() * this.anim.numFrames) | 0;
             this.animCycle -= (Math.random() * this.anim.getDelay(this.animFrame)) | 0;
         }

@@ -30,6 +30,7 @@ export default class ClientBuild {
 
     static lowMem: boolean = true;
     static minusedlevel: number = 0;
+    static hideGroundDecor: boolean = false;
 
     private readonly maxTileX: number;
     private readonly maxTileZ: number;
@@ -149,6 +150,9 @@ export default class ClientBuild {
 
                         if (t1 > 0) {
                             const flo: FloType = FloType.list[t1 - 1];
+                            if (!flo) {
+                                continue;
+                            }
                             this.huetot[z0] += flo.underlayHue;
                             this.sattot[z0] += flo.saturation;
                             this.ligtot[z0] += flo.lightness;
@@ -163,6 +167,9 @@ export default class ClientBuild {
 
                         if (t1 > 0) {
                             const flo: FloType = FloType.list[t1 - 1];
+                            if (!flo) {
+                                continue;
+                            }
                             this.huetot[z0] -= flo.underlayHue;
                             this.sattot[z0] -= flo.saturation;
                             this.ligtot[z0] -= flo.lightness;
@@ -278,6 +285,32 @@ export default class ClientBuild {
                                     const rotation: number = this.floorr[level][x0][z0];
                                     const flo: FloType = FloType.list[t2 - 1];
 
+                                    if (!flo) {
+                                        world?.setGround(
+                                            level,
+                                            x0,
+                                            z0,
+                                            TerrainOverlayShape.PLAIN,
+                                            LocAngle.WEST,
+                                            -1,
+                                            heightSW,
+                                            heightSE,
+                                            heightNE,
+                                            heightNW,
+                                            ClientBuild.getUCol(t1Colour, lightSW),
+                                            ClientBuild.getUCol(t1Colour, lightSE),
+                                            ClientBuild.getUCol(t1Colour, lightNE),
+                                            ClientBuild.getUCol(t1Colour, lightNW),
+                                            Colour.BLACK,
+                                            Colour.BLACK,
+                                            Colour.BLACK,
+                                            Colour.BLACK,
+                                            underlay,
+                                            Colour.BLACK
+                                        );
+                                        continue;
+                                    }
+
                                     let texture: number = flo.texture;
                                     let t2Colour: number;
                                     let overlay: number;
@@ -285,6 +318,32 @@ export default class ClientBuild {
                                         overlay = Pix3D.getTextureAverage(texture);
                                         t2Colour = -1;
                                     } else if (flo.colour === Colour.MAGENTA) {
+                                        if (flo.showunderlay) {
+                                            world?.setGround(
+                                                level,
+                                                x0,
+                                                z0,
+                                                TerrainOverlayShape.PLAIN,
+                                                LocAngle.WEST,
+                                                -1,
+                                                heightSW,
+                                                heightSE,
+                                                heightNE,
+                                                heightNW,
+                                                ClientBuild.getUCol(t1Colour, lightSW),
+                                                ClientBuild.getUCol(t1Colour, lightSE),
+                                                ClientBuild.getUCol(t1Colour, lightNE),
+                                                ClientBuild.getUCol(t1Colour, lightNW),
+                                                Colour.BLACK,
+                                                Colour.BLACK,
+                                                Colour.BLACK,
+                                                Colour.BLACK,
+                                                underlay,
+                                                Colour.BLACK
+                                            );
+                                            continue;
+                                        }
+
                                         overlay = 0;
                                         t2Colour = -2;
                                         texture = -1;
@@ -652,7 +711,7 @@ export default class ClientBuild {
 
                     if (stx > 0 && stz > 0 && stx < 103 && stz < 103) {
                         const loc = LocType.list(locId);
-                        if (shape != 22 || !ClientBuild.lowMem || loc.active || loc.forcedecor) {
+                        if (shape != 22 || !ClientBuild.hideGroundDecor || loc.active || loc.forcedecor) {
                             if (!loc.checkModelAll()) {
                                 ready = false;
                             }
@@ -948,7 +1007,9 @@ export default class ClientBuild {
         const typecode2: number = ((((angle << 6) + shape) | 0) << 24) >> 24;
 
         if (shape === LocShape.GROUND_DECOR) {
-            if (!ClientBuild.lowMem || loc.active || loc.forcedecor) {
+            const shouldRenderGroundDecor: boolean = !ClientBuild.hideGroundDecor || loc.active || loc.forcedecor;
+
+            if (shouldRenderGroundDecor) {
                 let model: ModelSource | null;
                 if (loc.anim === -1) {
                     model = loc.getModel(22, angle, heightSW, heightSE, heightNE, heightNW, -1);
@@ -1329,6 +1390,9 @@ export default class ClientBuild {
             }
 
             world?.setGroundDecor(model, level, x, z, y, typecode, typecode2);
+            if (world && model instanceof Model) {
+                world.relightRuntimeGroundDecor(level, x, z, model);
+            }
 
             if (loc.blockwalk && loc.active && cmap) {
                 cmap.blockGround(x, z);
@@ -1358,6 +1422,9 @@ export default class ClientBuild {
                 }
 
                 world?.addScenery(level, x, z, y, model, typecode, typecode2, width, height, yaw);
+                if (world && model instanceof Model) {
+                    world.relightRuntimeScenery(level, x, z, width, height, model);
+                }
             }
 
             if (loc.blockwalk && cmap) {
@@ -1372,6 +1439,9 @@ export default class ClientBuild {
             }
 
             world?.addScenery(level, x, z, y, model, typecode, typecode2, 1, 1, 0);
+            if (world && model instanceof Model) {
+                world.relightRuntimeScenery(level, x, z, 1, 1, model);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addLoc(x, z, loc.width, loc.length, angle, loc.blockrange);
@@ -1385,6 +1455,9 @@ export default class ClientBuild {
             }
 
             world?.setWall(level, x, z, y, ClientBuild.WSHAPE0[angle], 0, model, null, typecode, typecode2);
+            if (world && model instanceof Model) {
+                world.relightRuntimeWall(level, x, z, model);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addWall(x, z, shape, angle, loc.blockrange);
@@ -1398,6 +1471,9 @@ export default class ClientBuild {
             }
 
             world?.setWall(level, x, z, y, ClientBuild.WSHAPE1[angle], 0, model, null, typecode, typecode2);
+            if (world && model instanceof Model) {
+                world.relightRuntimeWall(level, x, z, model);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addWall(x, z, shape, angle, loc.blockrange);
@@ -1416,6 +1492,9 @@ export default class ClientBuild {
             }
 
             world?.setWall(level, x, z, y, ClientBuild.WSHAPE0[angle], ClientBuild.WSHAPE0[offset], model1, model2, typecode, typecode2);
+            if (world && model1 instanceof Model) {
+                world.relightRuntimeWall(level, x, z, model1, model2 instanceof Model ? model2 : null);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addWall(x, z, shape, angle, loc.blockrange);
@@ -1429,6 +1508,9 @@ export default class ClientBuild {
             }
 
             world?.setWall(level, x, z, y, ClientBuild.WSHAPE1[angle], 0, model, null, typecode, typecode2);
+            if (world && model instanceof Model) {
+                world.relightRuntimeWall(level, x, z, model);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addWall(x, z, shape, angle, loc.blockrange);
@@ -1442,6 +1524,9 @@ export default class ClientBuild {
             }
 
             world?.addScenery(level, x, z, y, model, typecode, typecode2, 1, 1, 0);
+            if (world && model instanceof Model) {
+                world.relightRuntimeScenery(level, x, z, 1, 1, model);
+            }
 
             if (loc.blockwalk && cmap) {
                 cmap.addLoc(x, z, loc.width, loc.length, angle, loc.blockrange);
