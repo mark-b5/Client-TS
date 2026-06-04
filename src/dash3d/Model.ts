@@ -767,17 +767,16 @@ export default class Model extends ModelSource {
 
         if (shareAlpha) {
             model.faceAlpha = src.faceAlpha;
+        } else if (src.faceAlpha === null) {
+            // No base face alpha: leave it null so animated transparency transforms
+            // (animType 5) are skipped instead of fading a solid model to invisible.
+            // Matches OSRS, which only applies alpha when the model has it.
+            model.faceAlpha = null;
         } else {
             model.faceAlpha = new Int32Array(model.numFaces);
 
-            if (src.faceAlpha === null) {
-                for (let f: number = 0; f < model.numFaces; f++) {
-                    model.faceAlpha[f] = 0;
-                }
-            } else {
-                for (let f: number = 0; f < model.numFaces; f++) {
-                    model.faceAlpha[f] = src.faceAlpha[f];
-                }
+            for (let f: number = 0; f < model.numFaces; f++) {
+                model.faceAlpha[f] = src.faceAlpha[f];
             }
         }
 
@@ -910,6 +909,11 @@ export default class Model extends ModelSource {
 
         if (shareAlpha) {
             this.faceAlpha = src.faceAlpha;
+        } else if (!src.faceAlpha) {
+            // Model has no base face alpha: leave it null so animated transparency
+            // transforms (animType 5) are skipped instead of fading a solid model to
+            // invisible. Matches OSRS, which only applies alpha when the model has it.
+            this.faceAlpha = null;
         } else {
             if (Model.tempFTran.length < this.numFaces) {
                 Model.tempFTran = new Int32Array(this.numFaces + 100);
@@ -917,14 +921,8 @@ export default class Model extends ModelSource {
 
             this.faceAlpha = Model.tempFTran;
 
-            if (!src.faceAlpha) {
-                for (let f: number = 0; f < this.numFaces; f++) {
-                    this.faceAlpha[f] = 0;
-                }
-            } else {
-                for (let f: number = 0; f < this.numFaces; f++) {
-                    this.faceAlpha[f] = src.faceAlpha[f];
-                }
+            for (let f: number = 0; f < this.numFaces; f++) {
+                this.faceAlpha[f] = src.faceAlpha[f];
             }
         }
 
