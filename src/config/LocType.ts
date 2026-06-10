@@ -349,6 +349,19 @@ export default class LocType {
             modified.recalcBoundingCylinder();
         }
 
+        // Animated locs (transformId !== -1) are rebuilt every frame in ClientLocAnim.getTempModel,
+        // AFTER scene build, so they never receive World.shareLight()'s deferred normal-merge + light
+        // pass -- a sharelight loc would render unlit and lose the model's baked glow. Finalise the
+        // lighting here, self-lit (no cross-loc normal sharing). This MUST run after hillSkewCopy,
+        // which needs the un-stripped pointNormal that light() clears. Static locs (transformId -1)
+        // are skipped and still get World.shareLight()'s pass as before. b5scape client-only fix.
+        if (transformId !== -1 && this.sharelight) {
+            const lightMagnitude: number = Math.sqrt(50 * 50 + 10 * 10 + 50 * 50) | 0;
+            const ambient: number = (this.ambient & 0xff) + 64;
+            const contrast: number = (this.contrast & 0xff) * 5 + 768;
+            modified.light(ambient, (contrast * lightMagnitude) >> 8, -50, -10, -50);
+        }
+
         return modified;
     }
 

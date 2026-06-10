@@ -121,7 +121,7 @@ export class Client extends GameShell {
     static readonly CAMERA_PITCH_MAX: number = 512;
     static readonly CAMERA_DISTANCE_DEFAULT: number = 600;
     static readonly CAMERA_DISTANCE_MIN: number = 150;
-    static readonly CAMERA_DISTANCE_MAX: number = 2100;
+    static readonly CAMERA_DISTANCE_MAX: number = 2625;
     static readonly CAMERA_DISTANCE_STEP: number = 125;
     static readonly CAMERA_ZOOM_RENDER_START: number = Client.CAMERA_DISTANCE_DEFAULT;
     static readonly CAMERA_ZOOM_RENDER_RANGE: number = Client.CAMERA_DISTANCE_MAX - Client.CAMERA_DISTANCE_DEFAULT;
@@ -599,6 +599,7 @@ export class Client extends GameShell {
         Client.nodeId = nodeid;
         Client.memServer = members;
 
+        // Respect the lowmem flag: low detail hides ground decor + roofs ("semi-low-detail").
         if (lowmem) {
             Client.setLowMem();
         } else {
@@ -3407,8 +3408,10 @@ export class Client extends GameShell {
         let clamp: number = maxY * 192;
         if (clamp > 98048) {
             clamp = 98048;
-        } else if (clamp < 32768) {
-            clamp = 32768;
+        } else if (clamp < 24576) {
+            // flat-ground floor lowered from 32768 (pitch 128) to allow a more
+            // horizontal camera (pitch ~96); terrain term above still raises it near hills.
+            clamp = 24576;
         }
 
         if (clamp > this.cameraPitchClamp) {
