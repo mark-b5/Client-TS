@@ -120,6 +120,8 @@ export class Client extends GameShell {
     static readonly CAMERA_PITCH_MIN: number = 0;
     static readonly CAMERA_PITCH_MAX: number = 512;
     static readonly CAMERA_DISTANCE_DEFAULT: number = 600;
+    // World render scale: 1 = original 512x334; 2 = 1024x668 (sharper world, ~4x raster cost). Must be a power of 2.
+    static readonly RENDER_SCALE: number = 2;
     static readonly CAMERA_DISTANCE_MIN: number = 150;
     static readonly CAMERA_DISTANCE_MAX: number = 2625;
     static readonly CAMERA_DISTANCE_STEP: number = 125;
@@ -1339,7 +1341,8 @@ export class Client extends GameShell {
             Pix3D.setClipping(190, 261);
             this.sideScanline = Pix3D.scanline;
 
-            Pix3D.setClipping(512, 334);
+            Pix3D.setClipping(512 * Client.RENDER_SCALE, 334 * Client.RENDER_SCALE);
+            Pix3D.focalShift = 9 + Math.log2(Client.RENDER_SCALE); // scale focal with the viewport: 2x = more pixels, same view (not zoomed)
             this.gameScanline = Pix3D.scanline;
 
             const distance: Int32Array = new Int32Array(9);
@@ -1350,7 +1353,7 @@ export class Client extends GameShell {
                 distance[x] = (offset * sin) >> 16;
             }
 
-            World.resetVisCalc(distance, 500, 800, 512, 334);
+            World.resetVisCalc(distance, 500, 800, 512 * Client.RENDER_SCALE, 334 * Client.RENDER_SCALE);
             WordFilter.unpack(wordenc);
 
             if (!this.mouseTrackingInterval) {
@@ -2137,7 +2140,7 @@ export class Client extends GameShell {
 
         this.areaSide = new PixMap(190, 261);
 
-        this.areaGame = new PixMap(512, 334);
+        this.areaGame = new PixMap(512 * Client.RENDER_SCALE, 334 * Client.RENDER_SCALE);
         Pix2D.cls();
 
         this.areaBackbase1 = new PixMap(496, 50);
@@ -10884,6 +10887,8 @@ export class Client extends GameShell {
             } else if (child.type === ComponentType.TYPE_MODEL) {
                 const tmpX: number = Pix3D.originX;
                 const tmpY: number = Pix3D.originY;
+                const tmpFocal: number = Pix3D.focalShift;
+                Pix3D.focalShift = 9; // UI 3D models stay native 1x even when the world viewport is scaled up
 
                 Pix3D.originX = childX + ((child.width / 2) | 0);
                 Pix3D.originY = childY + ((child.height / 2) | 0);
@@ -10916,6 +10921,7 @@ export class Client extends GameShell {
 
                 Pix3D.originX = tmpX;
                 Pix3D.originY = tmpY;
+                Pix3D.focalShift = tmpFocal;
             } else if (child.type === ComponentType.TYPE_INV_TEXT) {
                 const font: PixFont | null = child.font;
                 if (!font || !child.linkObjType || !child.linkObjNumber) {

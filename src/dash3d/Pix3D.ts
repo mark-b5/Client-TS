@@ -23,6 +23,9 @@ export default class Pix3D extends Pix2D {
     static numTextures: number = 0;
     static originX: number = 0;
     static originY: number = 0;
+    // Projection focal length shift. 9 == x512 (the original RS2 focal). Render-scale bumps this by
+    // log2(scale) so the world projects larger (more pixels, same view) when rendering above 1x.
+    static focalShift: number = 9;
     static texelPool: (Int32Array | null)[] | null = null;
     static poolSize: number = 0;
     private static opaque: boolean = false;

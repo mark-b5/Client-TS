@@ -980,8 +980,8 @@ export default class World {
             return false;
         }
 
-        const viewportX: number = this.xOrig + (((px << 9) / pz) | 0);
-        const viewportY: number = this.yOrig + (((py << 9) / pz) | 0);
+        const viewportX: number = this.xOrig + (((px << Pix3D.focalShift) / pz) | 0);
+        const viewportY: number = this.yOrig + (((py << Pix3D.focalShift) / pz) | 0);
         return viewportX >= this.xClip && viewportX <= this.xClip2 && viewportY >= this.yClip && viewportY <= this.yClip2;
     }
 
@@ -2030,14 +2030,14 @@ export default class World {
             return;
         }
 
-        const px0: number = Pix3D.originX + (((x0 << 9) / z0) | 0);
-        const py0: number = Pix3D.originY + (((y0 << 9) / z0) | 0);
-        const pz0: number = Pix3D.originX + (((x1 << 9) / z1) | 0);
-        const px1: number = Pix3D.originY + (((y1 << 9) / z1) | 0);
-        const py1: number = Pix3D.originX + (((x2 << 9) / z2) | 0);
-        const pz1: number = Pix3D.originY + (((y2 << 9) / z2) | 0);
-        const px3: number = Pix3D.originX + (((x3 << 9) / z3) | 0);
-        const py3: number = Pix3D.originY + (((y3 << 9) / z3) | 0);
+        const px0: number = Pix3D.originX + (((x0 << Pix3D.focalShift) / z0) | 0);
+        const py0: number = Pix3D.originY + (((y0 << Pix3D.focalShift) / z0) | 0);
+        const pz0: number = Pix3D.originX + (((x1 << Pix3D.focalShift) / z1) | 0);
+        const px1: number = Pix3D.originY + (((y1 << Pix3D.focalShift) / z1) | 0);
+        const py1: number = Pix3D.originX + (((x2 << Pix3D.focalShift) / z2) | 0);
+        const pz1: number = Pix3D.originY + (((y2 << Pix3D.focalShift) / z2) | 0);
+        const px3: number = Pix3D.originX + (((x3 << Pix3D.focalShift) / z3) | 0);
+        const py3: number = Pix3D.originY + (((y3 << Pix3D.focalShift) / z3) | 0);
 
         Pix3D.trans = 0;
 
@@ -2124,8 +2124,8 @@ export default class World {
                 Ground.drawTextureVertexZ[i] = z;
             }
 
-            Ground.drawVertexX[i] = Pix3D.originX + (((x << 9) / z) | 0);
-            Ground.drawVertexY[i] = Pix3D.originY + (((y << 9) / z) | 0);
+            Ground.drawVertexX[i] = Pix3D.originX + (((x << Pix3D.focalShift) / z) | 0);
+            Ground.drawVertexY[i] = Pix3D.originY + (((y << Pix3D.focalShift) / z) | 0);
         }
 
         Pix3D.trans = 0;
