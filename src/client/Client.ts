@@ -2752,6 +2752,34 @@ export class Client extends GameShell {
                 }
             }
         }
+
+        // Shift prioritises Walk here (world ops) / the inventory Drop slot (op 5 = OP_HELD5, which the client
+        // defaults to "Drop"; "Destroy" items use the same slot) as the left-click default by moving that
+        // entry to the last menu slot (= the left-click action). Enables shift+click to walk over entities /
+        // drop items, regardless of the op's display verb.
+        if (this.shiftHeld && this.menuNumEntries > 1) {
+            const last: number = this.menuNumEntries - 1;
+            for (let i: number = 0; i < last; i++) {
+                if (this.menuAction[i] === MiniMenuAction.WALK || this.menuAction[i] === MiniMenuAction.OP_HELD5) {
+                    const o: string = this.menuOption[i];
+                    this.menuOption[i] = this.menuOption[last];
+                    this.menuOption[last] = o;
+                    const a: number = this.menuAction[i];
+                    this.menuAction[i] = this.menuAction[last];
+                    this.menuAction[last] = a;
+                    const pa: number = this.menuParamA[i];
+                    this.menuParamA[i] = this.menuParamA[last];
+                    this.menuParamA[last] = pa;
+                    const pb: number = this.menuParamB[i];
+                    this.menuParamB[i] = this.menuParamB[last];
+                    this.menuParamB[last] = pb;
+                    const pc: number = this.menuParamC[i];
+                    this.menuParamC[i] = this.menuParamC[last];
+                    this.menuParamC[last] = pc;
+                    break;
+                }
+            }
+        }
     }
 
     // todo: order
