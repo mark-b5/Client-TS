@@ -2514,8 +2514,9 @@ export class Client extends GameShell {
 
         await this.handleInputKey();
 
-        if (now - this.idleTimer > 90_000) {
-            // no input in 90s, notify the server
+        if (now - this.idleTimer > 600_000) {
+            // no input in 10 minutes, notify the server -> AFK logout. Dev never logs out: the server's
+            // IdleTimerHandler ignores IDLE_TIMER while Environment.node.debug (so dev is unaffected).
             this.logoutTimer = 250;
             this.idleTimer += 10_000; // 10s backoff
 
@@ -2932,6 +2933,16 @@ export class Client extends GameShell {
         }
 
         if (this.handleOrbClick(this.mouseClickX, this.mouseClickY)) {
+            return;
+        }
+
+        // Compass click -> snap the camera due north (yaw 0). The compass renders at minimap-buffer (0,0)
+        // (areaMap blits at screen 550,4), a ~33px circle centred near screen (566,20). Logical coords.
+        const compassDx: number = this.mouseClickX - 566;
+        const compassDy: number = this.mouseClickY - 20;
+        if (compassDx * compassDx + compassDy * compassDy <= 16 * 16) {
+            this.orbitCameraYaw = 0;
+            this.orbitCameraYawVelocity = 0;
             return;
         }
 
