@@ -122,6 +122,9 @@ export class Client extends GameShell {
     static readonly CAMERA_DISTANCE_DEFAULT: number = 600;
     // World render scale: 1 = original 512x334; 2 = 1024x668 (sharper world, ~4x raster cost). Must be a power of 2.
     static readonly RENDER_SCALE: number = 2;
+    // Must match the server's world.json `clientRoutefinder` (true there = false here). When true, the client
+    // does NO routefinding -- every move click sends only the raw clicked tile and the server paths it.
+    static readonly SERVERSIDE_PATHING: boolean = true;
     static readonly UI_TRANSPARENT: number = 0x1000000; // viewport-overlay "show world through" sentinel (never a drawn 0xRRGGBB)
     static readonly CAMERA_DISTANCE_MIN: number = 150;
     static readonly CAMERA_DISTANCE_MAX: number = 2625;
@@ -4399,6 +4402,7 @@ export class Client extends GameShell {
         this.drawPriorityEntityOutline();
         this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
+        this.drawDestinationTileOutline();
         this.textureRunAnims(cycle);
         // The post-world 2D overlays (entity HP bars / hitsplats / headicons, off-screen arrow, cross,
         // right-click menu, interfaces, multi icon, private messages, fps) all draw at 1x into the 2x world
@@ -6262,6 +6266,21 @@ export class Client extends GameShell {
     }
 
     private tryMove(srcX: number, srcZ: number, dx: number, dz: number, tryNearest: boolean, locWidth: number, locLength: number, locAngle: number, locShape: number, forceapproach: number, type: number): boolean {
+        if (Client.SERVERSIDE_PATHING) {
+            // Serverside pathing does all routefinding on the server: send the raw clicked tile and let the
+            // server's findPath resolve the route. type: 0 gameclick, 1 minimap, 2 op-click.
+            this.sendServersideMove(dx, dz, type);
+            // Position the (cosmetic) map flag locally to match where the server will land us. For walk
+            // clicks that mirrors the server's closest-reachable-within-10; op-clicks just flag the target.
+            // Done AFTER the send so the move packet isn't delayed by the BFS.
+            if (type === 0 || type === 1) {
+                this.updateServersideFlag(srcX, srcZ, dx, dz);
+            } else {
+                this.minimapFlagX = dx;
+                this.minimapFlagZ = dz;
+            }
+            return true;
+        }
         const collisionMap: CollisionMap | null = this.collision[this.minusedlevel];
         if (!collisionMap) {
             return false;
@@ -6522,6 +6541,179 @@ export class Client extends GameShell {
         }
 
         return type !== 1;
+    }
+
+    // Serverside-pathing move packet: send ONLY the raw clicked tile as the destination (no client BFS,
+    // no waypoints). The server's findPath resolves the actual route. Mirrors the byte layout tryMove
+    // emits for a 1-tile path (bufferSize 1 -> size = 1+1+3, plus +14 for minimap which the caller appends).
+    private sendServersideMove(dx: number, dz: number, type: number): boolean {
+        this.tryMoveNearest = 0;
+        if (type === 0) {
+            this.out.p1Enc(ClientProt.MOVE_GAMECLICK);
+            this.out.p1(1 + 1 + 3);
+        } else if (type === 1) {
+            this.out.p1Enc(ClientProt.MOVE_MINIMAPCLICK);
+            this.out.p1(1 + 1 + 3 + 14);
+        } else {
+            this.out.p1Enc(ClientProt.MOVE_OPCLICK);
+            this.out.p1(1 + 1 + 3);
+        }
+        this.out.p1(this.keyHeld[5] === 1 ? 1 : 0); // ctrl-run
+        this.out.p2(dx + this.mapBuildBaseX);
+        this.out.p2(dz + this.mapBuildBaseZ);
+        return true;
+    }
+
+    // Cosmetic map-flag positioning for serverside pathing: a client BFS that mirrors the server's
+    // PathFinder.findClosestApproachPoint, so the flag lands where the player will actually walk -- the
+    // closest reachable tile within 10 of the click (lowest dx^2+dz^2, tie-broken by path length), or no
+    // flag if nothing reachable within 10. The real coord was already sent; this is purely visual.
+    private updateServersideFlag(srcX: number, srcZ: number, dx: number, dz: number): void {
+        const collisionMap: CollisionMap | null = this.collision[this.minusedlevel];
+        if (!collisionMap) {
+            return;
+        }
+
+        const size: number = BuildArea.SIZE;
+        for (let x: number = 0; x < size; x++) {
+            for (let z: number = 0; z < size; z++) {
+                const index: number = CollisionMap.index(x, z);
+                this.dirMap[index] = 0;
+                this.distMap[index] = 99999999;
+            }
+        }
+
+        this.dirMap[CollisionMap.index(srcX, srcZ)] = 99;
+        this.distMap[CollisionMap.index(srcX, srcZ)] = 0;
+
+        const bufferSize: number = this.routeX.length;
+        let read: number = 0;
+        let write: number = 0;
+        this.routeX[write] = srcX;
+        this.routeZ[write++] = srcZ;
+
+        const flags: Int32Array = collisionMap.flags;
+        let arrived: boolean = false;
+
+        while (read !== write) {
+            const x: number = this.routeX[read];
+            const z: number = this.routeZ[read];
+            read = (read + 1) % bufferSize;
+
+            if (x === dx && z === dz) {
+                arrived = true;
+                break;
+            }
+
+            const nextCost: number = this.distMap[CollisionMap.index(x, z)] + 1;
+
+            let index: number = CollisionMap.index(x - 1, z);
+            if (x > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 2;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z);
+            if (x < size - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 8;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x, z - 1);
+            if (z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 1;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x, z + 1);
+            if (z < size - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 4;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x - 1, z - 1);
+            if (x > 0 && z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_NE) === 0 && (flags[CollisionMap.index(x - 1, z)] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z - 1)] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 3;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z - 1);
+            if (x < size - 1 && z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_NW) === 0 && (flags[CollisionMap.index(x + 1, z)] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z - 1)] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 9;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x - 1, z + 1);
+            if (x > 0 && z < size - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_SE) === 0 && (flags[CollisionMap.index(x - 1, z)] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z + 1)] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 6;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z + 1);
+            if (x < size - 1 && z < size - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_SW) === 0 && (flags[CollisionMap.index(x + 1, z)] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z + 1)] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 12;
+                this.distMap[index] = nextCost;
+            }
+        }
+
+        let flagX: number = -1;
+        let flagZ: number = -1;
+        if (arrived) {
+            flagX = dx;
+            flagZ = dz;
+        } else {
+            // findClosestApproachPoint: within +-10 of dest, lowest dx^2+dz^2, tie-broken by shortest path;
+            // skip tiles unreachable or >100 path-steps away (matches server seek range).
+            let lowestCost: number = 1000;
+            let lowestPath: number = 100;
+            for (let x: number = dx - 10; x <= dx + 10; x++) {
+                for (let z: number = dz - 10; z <= dz + 10; z++) {
+                    if (x < 0 || z < 0 || x >= size || z >= size) {
+                        continue;
+                    }
+                    const index: number = CollisionMap.index(x, z);
+                    if (this.distMap[index] >= 100) {
+                        continue;
+                    }
+                    const ddx: number = x - dx;
+                    const ddz: number = z - dz;
+                    const cost: number = ddx * ddx + ddz * ddz;
+                    if (cost < lowestCost || (cost === lowestCost && this.distMap[index] < lowestPath)) {
+                        lowestCost = cost;
+                        lowestPath = this.distMap[index];
+                        flagX = x;
+                        flagZ = z;
+                    }
+                }
+            }
+        }
+
+        this.minimapFlagX = flagX === -1 ? 0 : flagX;
+        this.minimapFlagZ = flagZ === -1 ? 0 : flagZ;
     }
 
     private async tcpIn(): Promise<boolean> {
@@ -10273,10 +10465,8 @@ export class Client extends GameShell {
                         continue;
                     }
 
-                    let priority: number = 0;
-                    if (this.localPlayer && npc.vislevel > this.localPlayer.combatLevel) {
-                        priority = MiniMenuAction._PRIORITY;
-                    }
+                    // Attack is no longer de-prioritized when the npc out-levels you (disabled by request).
+                    const priority: number = 0;
 
                     this.menuOption[this.menuNumEntries] = npc.op[i] + ' @yel@' + tooltip;
 
@@ -10345,12 +10535,10 @@ export class Client extends GameShell {
 
                 this.menuOption[this.menuNumEntries] = op + ' @whi@' + tooltip;
 
+                // Attack is no longer de-prioritized when the player out-levels you (disabled by request);
+                // the server-set op priority (non-attack ops) is still honoured.
                 let priority = 0;
-                if (op.toLowerCase() === 'attack') {
-                    if (player.combatLevel > this.localPlayer.combatLevel) {
-                        priority = MiniMenuAction._PRIORITY;
-                    }
-                } else if (this.playerOpPriority[i]) {
+                if (op.toLowerCase() !== 'attack' && this.playerOpPriority[i]) {
                     priority = MiniMenuAction._PRIORITY;
                 }
 
