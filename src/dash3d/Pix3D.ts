@@ -25,7 +25,7 @@ export default class Pix3D extends Pix2D {
     static originY: number = 0;
     // Projection focal length shift. 9 == x512 (the original RS2 focal). Render-scale bumps this by
     // log2(scale) so the world projects larger (more pixels, same view) when rendering above 1x.
-    static focalShift: number = 9;
+    static focalLength: number = 512; // focal length (= 512 * RENDER_SCALE). A MULTIPLIER, not a bit-shift exponent, so non-power-of-2 scales (e.g. 3x) work.
     static texelPool: (Int32Array | null)[] | null = null;
     static poolSize: number = 0;
     private static opaque: boolean = false;
@@ -1635,21 +1635,21 @@ export default class Pix3D extends Pix2D {
         const horizontalY: number = tyC - originY;
         const horizontalZ: number = tzC - originZ;
 
-        // Render-scale: u/v/w step per SCREEN pixel and per row, but the world now projects at 2x (focal
-        // shifted up), so those steps must shrink by the focal scale (>> ds) — else the texture advances
-        // 2x too fast and garbles. ds = 0 at 1x (interface models), 1 at 2x (world).
-        const ds: number = Pix3D.focalShift - 9;
+        // Render-scale: u/v/w step per SCREEN pixel and per row, but the world now projects scaled up (focal
+        // longer), so those steps must shrink by the focal scale — else the texture advances too fast and
+        // garbles. focalScale = 1 at 1x (interface models), RENDER_SCALE in the scaled world.
+        const focalScale: number = Pix3D.focalLength / 512;
         let u: number = (horizontalX * originY - horizontalY * originX) << 14;
-        const uStride: number = ((horizontalY * originZ - horizontalZ * originY) << 8) >> ds;
-        const uStepVertical: number = ((horizontalZ * originX - horizontalX * originZ) << 5) >> ds;
+        const uStride: number = Math.floor(((horizontalY * originZ - horizontalZ * originY) << 8) / focalScale);
+        const uStepVertical: number = Math.floor(((horizontalZ * originX - horizontalX * originZ) << 5) / focalScale);
 
         let v: number = (verticalX * originY - verticalY * originX) << 14;
-        const vStride: number = ((verticalY * originZ - verticalZ * originY) << 8) >> ds;
-        const vStepVertical: number = ((verticalZ * originX - verticalX * originZ) << 5) >> ds;
+        const vStride: number = Math.floor(((verticalY * originZ - verticalZ * originY) << 8) / focalScale);
+        const vStepVertical: number = Math.floor(((verticalZ * originX - verticalX * originZ) << 5) / focalScale);
 
         let w: number = (verticalY * horizontalX - verticalX * horizontalY) << 14;
-        const wStride: number = ((verticalZ * horizontalY - verticalY * horizontalZ) << 8) >> ds;
-        const wStepVertical: number = ((verticalX * horizontalZ - verticalZ * horizontalX) << 5) >> ds;
+        const wStride: number = Math.floor(((verticalZ * horizontalY - verticalY * horizontalZ) << 8) / focalScale);
+        const wStepVertical: number = Math.floor(((verticalX * horizontalZ - verticalZ * horizontalX) << 5) / focalScale);
 
         let xStepAB: number = 0;
         let shadeStepAB: number = 0;

@@ -46,7 +46,7 @@ import { Int32Array2d, TypedArray1d, TypedArray3d, Int32Array3d, Uint8Array3d } 
 import { downloadUrl, sleep } from '#/util/JsUtil.js';
 
 import AnimFrame from '#/dash3d/AnimFrame.js';
-import { canvas2d } from '#/graphics/Canvas.js';
+import { canvas, canvas2d } from '#/graphics/Canvas.js';
 import { Colour } from '#/graphics/Colour.js';
 import Pix2D from '#/graphics/Pix2D.js';
 import Pix3D from '#/dash3d/Pix3D.js';
@@ -609,6 +609,13 @@ export class Client extends GameShell {
     constructor(nodeid: number, lowmem: boolean, members: boolean) {
         super();
         PixMap.displayScale = Client.RENDER_SCALE; // composite the whole client at the render scale (1 = original, 2 = everything 2x)
+        // Keep the LOGICAL layout fixed at 765x503 by sizing the backing to it * RENDER_SCALE. The hosting
+        // page pins the canvas to a 2x backing, so above 2x the logical area (= backing / scale) shrank below
+        // 765 and the fixed-layout title/UI overflowed (the "botched login"). Cap the on-screen size at the
+        // 2x baseline so >2x supersamples down crisply instead of overflowing the window.
+        this.resize(765 * Client.RENDER_SCALE, 503 * Client.RENDER_SCALE);
+        canvas.style.width = 765 * 2 + 'px';
+        canvas.style.height = 503 * 2 + 'px';
         this.searchParams = new URLSearchParams(window.location.search);
         this.fKeyToSideIcon.fill(-1);
 
@@ -1364,7 +1371,7 @@ export class Client extends GameShell {
             this.sideScanline = Pix3D.scanline;
 
             Pix3D.setClipping(512 * Client.RENDER_SCALE, 334 * Client.RENDER_SCALE);
-            Pix3D.focalShift = 9 + Math.log2(Client.RENDER_SCALE); // scale focal with the viewport: 2x = more pixels, same view (not zoomed)
+            Pix3D.focalLength = 512 * Client.RENDER_SCALE; // scale focal with the viewport: more pixels, same view (not zoomed)
             this.gameScanline = Pix3D.scanline;
 
             const distance: Int32Array = new Int32Array(9);
@@ -4436,11 +4443,11 @@ export class Client extends GameShell {
             const savedScanline: Int32Array = Pix3D.scanline;
             const savedOriginX: number = Pix3D.originX;
             const savedOriginY: number = Pix3D.originY;
-            const savedFocal: number = Pix3D.focalShift;
+            const savedFocal: number = Pix3D.focalLength;
             this.areaViewport.data.fill(Client.UI_TRANSPARENT);
             this.areaViewport.setPixels();
             Pix3D.setRenderClipping();
-            Pix3D.focalShift = 9;
+            Pix3D.focalLength = 512;
             this.entityOverlays();
             this.coordArrow();
             this.otherOverlays();
@@ -4448,7 +4455,7 @@ export class Client extends GameShell {
             Pix3D.scanline = savedScanline;
             Pix3D.originX = savedOriginX;
             Pix3D.originY = savedOriginY;
-            Pix3D.focalShift = savedFocal;
+            Pix3D.focalLength = savedFocal;
             this.blitViewport2x();
         } else {
             this.entityOverlays();
@@ -5588,11 +5595,22 @@ export class Client extends GameShell {
         const sy: number = fromY < y1 ? 1 : -1;
         let err: number = dx + dy;
 
+        // Thicken outlines to RENDER_SCALE px so they stay visible at high pixel density (a 1px line reads as
+        // a vanishing hairline at 2x/3x). Spread the extra pixels perpendicular to the line's dominant axis,
+        // centred, so the stroke doesn't overlap itself (which would darken alpha lines). thick=1 => original.
+        const thick: number = Client.RENDER_SCALE;
+        const off: number = thick >> 1;
+        const stackY: boolean = dx >= -dy;
+
         while (true) {
-            if (alpha >= 256) {
-                Pix2D.hline(fromX, fromY, 1, rgb);
-            } else {
-                Pix2D.hlineTrans(fromX, fromY, 1, rgb, alpha);
+            for (let i: number = 0; i < thick; i++) {
+                const px: number = stackY ? fromX : fromX - off + i;
+                const py: number = stackY ? fromY - off + i : fromY;
+                if (alpha >= 256) {
+                    Pix2D.hline(px, py, 1, rgb);
+                } else {
+                    Pix2D.hlineTrans(px, py, 1, rgb, alpha);
+                }
             }
             if (fromX === x1 && fromY === y1) {
                 break;
@@ -5637,8 +5655,8 @@ export class Client extends GameShell {
         dy = tmp;
 
         if (dz >= 50) {
-            this.projectX = Pix3D.originX + (((dx << Pix3D.focalShift) / dz) | 0);
-            this.projectY = Pix3D.originY + (((dy << Pix3D.focalShift) / dz) | 0);
+            this.projectX = Pix3D.originX + (((dx * Pix3D.focalLength) / dz) | 0);
+            this.projectY = Pix3D.originY + (((dy * Pix3D.focalLength) / dz) | 0);
         } else {
             this.projectX = -1;
             this.projectY = -1;
@@ -11161,8 +11179,8 @@ export class Client extends GameShell {
             } else if (child.type === ComponentType.TYPE_MODEL) {
                 const tmpX: number = Pix3D.originX;
                 const tmpY: number = Pix3D.originY;
-                const tmpFocal: number = Pix3D.focalShift;
-                Pix3D.focalShift = 9; // UI 3D models stay native 1x even when the world viewport is scaled up
+                const tmpFocal: number = Pix3D.focalLength;
+                Pix3D.focalLength = 512; // UI 3D models stay native 1x even when the world viewport is scaled up
 
                 Pix3D.originX = childX + ((child.width / 2) | 0);
                 Pix3D.originY = childY + ((child.height / 2) | 0);
@@ -11195,7 +11213,7 @@ export class Client extends GameShell {
 
                 Pix3D.originX = tmpX;
                 Pix3D.originY = tmpY;
-                Pix3D.focalShift = tmpFocal;
+                Pix3D.focalLength = tmpFocal;
             } else if (child.type === ComponentType.TYPE_INV_TEXT) {
                 const font: PixFont | null = child.font;
                 if (!font || !child.linkObjType || !child.linkObjNumber) {
