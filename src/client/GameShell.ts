@@ -70,12 +70,14 @@ export default abstract class GameShell {
         }
     }
 
+    // Logical screen size = backing / displayScale. The client lays out + hit-tests in this logical
+    // 765x503 space; PixMap.draw scales the composite up to the backing.
     protected get sWid(): number {
-        return canvas.width;
+        return (canvas.width / PixMap.displayScale) | 0;
     }
 
     protected get sHei(): number {
-        return canvas.height;
+        return (canvas.height / PixMap.displayScale) | 0;
     }
 
     protected resize(width: number, height: number) {
@@ -628,8 +630,8 @@ export default abstract class GameShell {
             x = ((clickX - offsetX) * scaleX) | 0;
             y = ((clickY - offsetY) * scaleY) | 0;
         } else {
-            const scaleX: number = canvas.width / canvasBounds.width;
-            const scaleY: number = canvas.height / canvasBounds.height;
+            const scaleX: number = fixedWidth / canvasBounds.width;
+            const scaleY: number = fixedHeight / canvasBounds.height;
             x = (clickX * scaleX) | 0;
             y = (clickY * scaleY) | 0;
         }

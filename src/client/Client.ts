@@ -122,6 +122,7 @@ export class Client extends GameShell {
     static readonly CAMERA_DISTANCE_DEFAULT: number = 600;
     // World render scale: 1 = original 512x334; 2 = 1024x668 (sharper world, ~4x raster cost). Must be a power of 2.
     static readonly RENDER_SCALE: number = 2;
+    static readonly UI_TRANSPARENT: number = 0x1000000; // viewport-overlay "show world through" sentinel (never a drawn 0xRRGGBB)
     static readonly CAMERA_DISTANCE_MIN: number = 150;
     static readonly CAMERA_DISTANCE_MAX: number = 2625;
     static readonly CAMERA_DISTANCE_STEP: number = 125;
@@ -307,6 +308,7 @@ export class Client extends GameShell {
     private areaSide: PixMap | null = null;
     private areaMap: PixMap | null = null;
     private areaGame: PixMap | null = null;
+    private areaViewport: PixMap | null = null; // 1x scratch for the main interface; pixel-doubled over the world
     private areaChat: PixMap | null = null;
     private areaBackbase1: PixMap | null = null;
     private areaBackbase2: PixMap | null = null;
@@ -335,6 +337,8 @@ export class Client extends GameShell {
     private orbIconHitpoints: Pix8 | null = null;
     private orbIconPrayer: Pix8 | null = null;
     private orbIconAgility: Pix8 | null = null;
+    private iconScratchCanvas: HTMLCanvasElement | null = null;
+    private iconScratchCtx: CanvasRenderingContext2D | null = null;
     private redstone1: Pix8 | null = null;
     private redstone2: Pix8 | null = null;
     private redstone3: Pix8 | null = null;
@@ -589,6 +593,7 @@ export class Client extends GameShell {
 
     constructor(nodeid: number, lowmem: boolean, members: boolean) {
         super();
+        PixMap.displayScale = Client.RENDER_SCALE; // composite the whole client at the render scale (1 = original, 2 = everything 2x)
         this.searchParams = new URLSearchParams(window.location.search);
         this.fKeyToSideIcon.fill(-1);
 
@@ -727,7 +732,7 @@ export class Client extends GameShell {
 
     private drawError(): void {
         canvas2d.fillStyle = 'black';
-        canvas2d.fillRect(0, 0, this.sWid, this.sHei);
+        canvas2d.fillRect(0, 0, this.sWid * PixMap.displayScale, this.sHei * PixMap.displayScale); // clear the full backing
 
         this.setFramerate(1);
 
@@ -2141,6 +2146,8 @@ export class Client extends GameShell {
         this.areaSide = new PixMap(190, 261);
 
         this.areaGame = new PixMap(512 * Client.RENDER_SCALE, 334 * Client.RENDER_SCALE);
+        this.areaGame.contentScale = Client.RENDER_SCALE; // already rendered at 2x -> blit 1:1 (don't pixel-double it)
+        this.areaViewport = new PixMap(512, 334); // 1x main-interface scratch (pixel-doubled into areaGame)
         Pix2D.cls();
 
         this.areaBackbase1 = new PixMap(496, 50);
@@ -3344,8 +3351,10 @@ export class Client extends GameShell {
             return; // custom
         }
 
-        const orbitX: number = this.localPlayer.x + this.macroCameraX;
-        const orbitZ: number = this.localPlayer.z + this.macroCameraZ;
+        // Centre the camera exactly on the player. The macroCamera idle-drift (±50 world units) was always
+        // applied, which reads as the camera sitting off-character — magnified when zoomed in.
+        const orbitX: number = this.localPlayer.x;
+        const orbitZ: number = this.localPlayer.z;
 
         if (this.orbitCameraX - orbitX < -500 || this.orbitCameraX - orbitX > 500 || this.orbitCameraZ - orbitZ < -500 || this.orbitCameraZ - orbitZ > 500) {
             this.orbitCameraX = orbitX;
@@ -4361,8 +4370,8 @@ export class Client extends GameShell {
         const cycle = Pix3D.cycle;
         Model.mouseCheck = true;
         Model.pickedCount = 0;
-        Model.mouseX = this.mouseX - 4;
-        Model.mouseY = this.mouseY - 4;
+        Model.mouseX = (this.mouseX - 4) * Client.RENDER_SCALE; // logical mouse -> 2x world buffer space
+        Model.mouseY = (this.mouseY - 4) * Client.RENDER_SCALE;
 
         Pix2D.cls();
         const zoomOutDistance = Math.max(0, this.cameraDistance - Client.CAMERA_ZOOM_RENDER_START);
@@ -4380,7 +4389,7 @@ export class Client extends GameShell {
         }
 
         if (this.showHoveredTrueTile && !this.isMenuOpen && leftClickAction === MiniMenuAction.WALK) {
-            this.world?.updateMouseHover(this.mouseX - 4, this.mouseY - 4);
+            this.world?.updateMouseHover((this.mouseX - 4) * Client.RENDER_SCALE, (this.mouseY - 4) * Client.RENDER_SCALE);
         } else {
             this.world?.clearMouseHover();
         }
@@ -4390,10 +4399,35 @@ export class Client extends GameShell {
         this.drawPriorityEntityOutline();
         this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
-        this.entityOverlays();
-        this.coordArrow();
         this.textureRunAnims(cycle);
-        this.otherOverlays();
+        // The post-world 2D overlays (entity HP bars / hitsplats / headicons, off-screen arrow, cross,
+        // right-click menu, interfaces, multi icon, private messages, fps) all draw at 1x into the 2x world
+        // buffer. Render the whole layer into the 1x viewport scratch -- with the 3D projection switched to
+        // 1x (focal 9 + scratch origin) so entity overheads land in-scratch -- then pixel-double it over the
+        // 2x world in a single pass.
+        if (this.areaViewport && this.areaGame) {
+            const savedScanline: Int32Array = Pix3D.scanline;
+            const savedOriginX: number = Pix3D.originX;
+            const savedOriginY: number = Pix3D.originY;
+            const savedFocal: number = Pix3D.focalShift;
+            this.areaViewport.data.fill(Client.UI_TRANSPARENT);
+            this.areaViewport.setPixels();
+            Pix3D.setRenderClipping();
+            Pix3D.focalShift = 9;
+            this.entityOverlays();
+            this.coordArrow();
+            this.otherOverlays();
+            this.areaGame.setPixels();
+            Pix3D.scanline = savedScanline;
+            Pix3D.originX = savedOriginX;
+            Pix3D.originY = savedOriginY;
+            Pix3D.focalShift = savedFocal;
+            this.blitViewport2x();
+        } else {
+            this.entityOverlays();
+            this.coordArrow();
+            this.otherOverlays();
+        }
         this.areaGame?.draw(4, 4);
 
         this.camX = camX;
@@ -4924,7 +4958,7 @@ export class Client extends GameShell {
                 } else if (this.chatEffect[i] === 2) {
                     const w: number = this.b12?.stringWid(message) ?? 0;
                     const offsetX: number = ((150 - this.chatTimer[i]) * (w + 100)) / 150;
-                    Pix2D.setClipping(this.projectX - 50, 0, this.projectX + 50, 334);
+                    Pix2D.setClipping(this.projectX - 50, 0, this.projectX + 50, 334 * Client.RENDER_SCALE);
                     this.b12?.drawString(message, this.projectX + 50 - offsetX, this.projectY + 1, Colour.BLACK);
                     this.b12?.drawString(message, this.projectX + 50 - offsetX, this.projectY, colour);
                     Pix2D.resetClipping();
@@ -4985,6 +5019,35 @@ export class Client extends GameShell {
                 texture.data = dst;
                 this.textureBuffer = src;
                 Pix3D.pushTexture(24);
+            }
+        }
+    }
+
+    // Pixel-double the 1x main-interface scratch (areaViewport) onto the 2x world buffer (areaGame),
+    // skipping the transparent sentinel so the sharp world shows through interface gaps.
+    private blitViewport2x(): void {
+        if (!this.areaViewport || !this.areaGame) {
+            return;
+        }
+        const scale: number = Client.RENDER_SCALE;
+        const src: Int32Array = this.areaViewport.data;
+        const dst: Int32Array = this.areaGame.data;
+        const dstW: number = 512 * scale;
+        for (let sy: number = 0; sy < 334; sy++) {
+            const srow: number = sy * 512;
+            for (let sx: number = 0; sx < 512; sx++) {
+                const p: number = src[srow + sx];
+                if (p === Client.UI_TRANSPARENT) {
+                    continue;
+                }
+                const bx: number = sx * scale;
+                const by: number = sy * scale;
+                for (let oy: number = 0; oy < scale; oy++) {
+                    const drow: number = (by + oy) * dstW + bx;
+                    for (let ox: number = 0; ox < scale; ox++) {
+                        dst[drow + ox] = p;
+                    }
+                }
             }
         }
     }
@@ -5547,8 +5610,8 @@ export class Client extends GameShell {
         dy = tmp;
 
         if (dz >= 50) {
-            this.projectX = Pix3D.originX + (((dx << 9) / dz) | 0);
-            this.projectY = Pix3D.originY + (((dy << 9) / dz) | 0);
+            this.projectX = Pix3D.originX + (((dx << Pix3D.focalShift) / dz) | 0);
+            this.projectY = Pix3D.originY + (((dy << Pix3D.focalShift) / dz) | 0);
         } else {
             this.projectX = -1;
             this.projectY = -1;
@@ -8467,14 +8530,14 @@ export class Client extends GameShell {
                 player.cycle = Client.loopCycle;
             }
 
-            let dx: number = buf.gBit(5);
-            if (dx > 15) {
-                dx -= 32;
+            let dx: number = buf.gBit(6);
+            if (dx > 31) {
+                dx -= 64;
             }
 
-            let dz: number = buf.gBit(5);
-            if (dz > 15) {
-                dz -= 32;
+            let dz: number = buf.gBit(6);
+            if (dz > 31) {
+                dz -= 64;
             }
 
             const jump: number = buf.gBit(1);
@@ -8804,14 +8867,14 @@ export class Client extends GameShell {
                 buf.gBit(11);
             }
 
-            let dx: number = buf.gBit(5);
-            if (dx > 15) {
-                dx -= 32;
+            let dx: number = buf.gBit(6);
+            if (dx > 31) {
+                dx -= 64;
             }
 
-            let dz: number = buf.gBit(5);
-            if (dz > 15) {
-                dz -= 32;
+            let dz: number = buf.gBit(6);
+            if (dz > 31) {
+                dz -= 64;
             }
 
             const jump = buf.gBit(1);
@@ -9910,9 +9973,9 @@ export class Client extends GameShell {
 
         if (action === MiniMenuAction.WALK) {
             if (this.isMenuOpen) {
-                this.world?.updateMousePicking(b - 4, c - 4);
+                this.world?.updateMousePicking((b - 4) * Client.RENDER_SCALE, (c - 4) * Client.RENDER_SCALE);
             } else {
-                this.world?.updateMousePicking(this.mouseClickX - 4, this.mouseClickY - 4);
+                this.world?.updateMousePicking((this.mouseClickX - 4) * Client.RENDER_SCALE, (this.mouseClickY - 4) * Client.RENDER_SCALE);
             }
         }
 
@@ -12144,6 +12207,9 @@ export class Client extends GameShell {
         const innerRadius: number = radius - 2;
 
         canvas2d.save();
+        // The orb sphere + its icon draw straight to the 2x backing canvas (not via a pixel-doubled
+        // buffer); scale the whole context so both come out at 2x. Coords inside stay logical.
+        canvas2d.scale(Client.RENDER_SCALE, Client.RENDER_SCALE);
 
         canvas2d.fillStyle = 'rgba(0,0,0,0.38)';
         canvas2d.beginPath();
@@ -12194,7 +12260,8 @@ export class Client extends GameShell {
 
     private drawStatusBadgeIcon(x: number, y: number, badgeText: string): void {
         const key: string = badgeText.toUpperCase();
-        const scale: number = 0.875;
+        // Drawn inside drawStatusBadgeCanvas's RENDER_SCALE'd canvas context, so coords stay logical here.
+        const scale: number = 0.79; // ~10% smaller than the previous 0.875
         const iconX: number = x;
         const iconY: number = y;
 
@@ -12213,7 +12280,7 @@ export class Client extends GameShell {
         }
 
         canvas2d.save();
-        canvas2d.translate(iconX, y);
+        canvas2d.translate(iconX, iconY);
         canvas2d.scale(scale, scale);
 
         if (key === 'H') {
@@ -12304,32 +12371,47 @@ export class Client extends GameShell {
     }
 
     private drawPix8IconCanvas(icon: Pix8, cx: number, cy: number, scale: number): void {
-        const drawW: number = Math.max(1, Math.round(icon.wi * scale));
-        const drawH: number = Math.max(1, Math.round(icon.hi * scale));
-        const spriteW: number = Math.max(1, Math.round(icon.owi * scale));
-        const spriteH: number = Math.max(1, Math.round(icon.ohi * scale));
-        const startX: number = cx - ((spriteW / 2) | 0) + Math.round(icon.xof * scale);
-        const startY: number = cy - ((spriteH / 2) | 0) + Math.round(icon.yof * scale);
-        const sx: number = icon.wi / drawW;
-        const sy: number = icon.hi / drawH;
-
-        for (let y: number = 0; y < drawH; y++) {
-            const srcY: number = (y * sy) | 0;
-            for (let x: number = 0; x < drawW; x++) {
-                const srcX: number = (x * sx) | 0;
-                const palIndex: number = icon.data[srcX + srcY * icon.wi] & 0xff;
-                if (palIndex === 0) {
-                    continue;
-                }
-
-                const rgb: number = icon.bpal[palIndex];
-                const r: number = (rgb >> 16) & 0xff;
-                const g: number = (rgb >> 8) & 0xff;
-                const b: number = rgb & 0xff;
-                canvas2d.fillStyle = `rgb(${r}, ${g}, ${b})`;
-                canvas2d.fillRect(startX + x, startY + y, 1, 1);
-            }
+        const w: number = icon.wi;
+        const h: number = icon.hi;
+        if (w <= 0 || h <= 0) {
+            return;
         }
+
+        // Rasterize the palettized icon to an offscreen RGBA canvas once (palette index 0 = transparent),
+        // then drawImage it smoothly to the target size. Avoids the old per-pixel nearest-neighbour skip
+        // that clipped/garbled edges at non-integer scales.
+        if (!this.iconScratchCanvas) {
+            this.iconScratchCanvas = document.createElement('canvas');
+            this.iconScratchCtx = this.iconScratchCanvas.getContext('2d');
+        }
+        if (!this.iconScratchCtx) {
+            return;
+        }
+        this.iconScratchCanvas.width = w;
+        this.iconScratchCanvas.height = h;
+        const img: ImageData = this.iconScratchCtx.createImageData(w, h);
+        const buf: Uint32Array = new Uint32Array(img.data.buffer);
+        for (let i: number = 0; i < w * h; i++) {
+            const pal: number = icon.data[i] & 0xff;
+            if (pal === 0) {
+                buf[i] = 0;
+                continue;
+            }
+            const rgb: number = icon.bpal[pal];
+            buf[i] = 0xff000000 | ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb >> 16) & 0xff);
+        }
+        this.iconScratchCtx.putImageData(img, 0, 0);
+
+        // Centre the VISIBLE icon bounds exactly on the orb centre (ignore sprite padding/crop offset,
+        // which was nudging them off-centre).
+        const dstW: number = w * scale;
+        const dstH: number = h * scale;
+        const dstX: number = cx - dstW / 2;
+        const dstY: number = cy - dstH / 2;
+        const prevSmooth: boolean = canvas2d.imageSmoothingEnabled;
+        canvas2d.imageSmoothingEnabled = true;
+        canvas2d.drawImage(this.iconScratchCanvas, dstX, dstY, dstW, dstH);
+        canvas2d.imageSmoothingEnabled = prevSmooth;
     }
 
     private drawPix32IconCanvas(icon: Pix32, cx: number, cy: number, scale: number): void {

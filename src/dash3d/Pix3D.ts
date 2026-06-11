@@ -1635,17 +1635,21 @@ export default class Pix3D extends Pix2D {
         const horizontalY: number = tyC - originY;
         const horizontalZ: number = tzC - originZ;
 
+        // Render-scale: u/v/w step per SCREEN pixel and per row, but the world now projects at 2x (focal
+        // shifted up), so those steps must shrink by the focal scale (>> ds) — else the texture advances
+        // 2x too fast and garbles. ds = 0 at 1x (interface models), 1 at 2x (world).
+        const ds: number = Pix3D.focalShift - 9;
         let u: number = (horizontalX * originY - horizontalY * originX) << 14;
-        const uStride: number = (horizontalY * originZ - horizontalZ * originY) << 8;
-        const uStepVertical: number = (horizontalZ * originX - horizontalX * originZ) << 5;
+        const uStride: number = ((horizontalY * originZ - horizontalZ * originY) << 8) >> ds;
+        const uStepVertical: number = ((horizontalZ * originX - horizontalX * originZ) << 5) >> ds;
 
         let v: number = (verticalX * originY - verticalY * originX) << 14;
-        const vStride: number = (verticalY * originZ - verticalZ * originY) << 8;
-        const vStepVertical: number = (verticalZ * originX - verticalX * originZ) << 5;
+        const vStride: number = ((verticalY * originZ - verticalZ * originY) << 8) >> ds;
+        const vStepVertical: number = ((verticalZ * originX - verticalX * originZ) << 5) >> ds;
 
         let w: number = (verticalY * horizontalX - verticalX * horizontalY) << 14;
-        const wStride: number = (verticalZ * horizontalY - verticalY * horizontalZ) << 8;
-        const wStepVertical: number = (verticalX * horizontalZ - verticalZ * horizontalX) << 5;
+        const wStride: number = ((verticalZ * horizontalY - verticalY * horizontalZ) << 8) >> ds;
+        const wStepVertical: number = ((verticalX * horizontalZ - verticalZ * horizontalX) << 5) >> ds;
 
         let xStepAB: number = 0;
         let shadeStepAB: number = 0;

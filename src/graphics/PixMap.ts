@@ -10,6 +10,14 @@ export default class PixMap {
     private readonly ctx: CanvasRenderingContext2D;
     private readonly paint: Uint32Array;
 
+    // Render-scale: the whole client composites at displayScale (2 = render everything 2x). draw() takes
+    // LOGICAL coordinates and maps them to the (2x) backing. A buffer already rendered above 1x (the world)
+    // sets contentScale so it blits 1:1 instead of being pixel-doubled again.
+    static displayScale: number = 1;
+    contentScale: number = 1;
+    private scaledCanvas: HTMLCanvasElement | null = null;
+    private scaledCtx: CanvasRenderingContext2D | null = null;
+
     constructor(width: number, height: number, ctx: CanvasRenderingContext2D = canvas2d) {
         this.width = width;
         this.height = height;
@@ -28,7 +36,25 @@ export default class PixMap {
 
     draw(x: number, y: number): void {
         this.prepareCanvas();
-        this.ctx.putImageData(this.img, x, y);
+        const display: number = PixMap.displayScale;
+        const upscale: number = display / this.contentScale;
+        const dx: number = (x * display) | 0;
+        const dy: number = (y * display) | 0;
+        if (upscale === 1) {
+            this.ctx.putImageData(this.img, dx, dy);
+            return;
+        }
+        // Pixel-double (or N-x) this 1x buffer up to the backing: putImageData can't scale, so stage it on
+        // an offscreen canvas and drawImage with smoothing off (crisp nearest-neighbour).
+        if (!this.scaledCanvas) {
+            this.scaledCanvas = document.createElement('canvas');
+            this.scaledCanvas.width = this.width;
+            this.scaledCanvas.height = this.height;
+            this.scaledCtx = this.scaledCanvas.getContext('2d');
+        }
+        this.scaledCtx!.putImageData(this.img, 0, 0);
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.drawImage(this.scaledCanvas!, dx, dy, (this.width * upscale) | 0, (this.height * upscale) | 0);
     }
 
     private prepareCanvas(): void {

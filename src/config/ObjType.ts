@@ -413,6 +413,7 @@ export default class ObjType {
 
         const _cx: number = Pix3D.originX;
         const _cy: number = Pix3D.originY;
+        const _focal: number = Pix3D.focalShift;
         const _loff: Int32Array = Pix3D.scanline;
         const _data: Int32Array = Pix2D.pixels;
         const _w: number = Pix2D.width;
@@ -426,6 +427,7 @@ export default class ObjType {
         Pix2D.setPixels(icon.data, 32, 32);
         Pix2D.fillRect(0, 0, 32, 32, Colour.BLACK);
         Pix3D.setRenderClipping();
+        Pix3D.focalShift = 9; // item icons render at native 1x focal, not the scaled world focal
 
         let zoom = obj.zoom2d;
         if (outlineRgb === -1) {
@@ -506,6 +508,7 @@ export default class ObjType {
         Pix2D.setClipping(_l, _t, _r, _b);
         Pix3D.originX = _cx;
         Pix3D.originY = _cy;
+        Pix3D.focalShift = _focal;
         Pix3D.scanline = _loff;
         Pix3D.lowDetail = true;
 
