@@ -12805,11 +12805,13 @@ export class Client extends GameShell {
         canvas2d.drawImage(this.iconScratchCanvas, cx - ((w / 2) | 0), cy - ((h / 2) | 0));
     }
 
-    // Hit-test (px,py) against an orb's sphere (frame + (40,17) centre, radius 13). Logical coords.
+    // Hit-test (px,py) against an orb's button: a wide-short rect over the value text + sphere, extended left
+    // to cover the full value. Same dims for both orbs; height kept under the 23px vertical orb pitch so the
+    // run and spec buttons don't overlap. Logical coords. (Edges relative to frame: x 2..52, y 8..26.)
     private orbHit(frameX: number, frameY: number, px: number, py: number): boolean {
-        const dx: number = px - (frameX + 40);
-        const dy: number = py - (frameY + 17);
-        return dx * dx + dy * dy <= 169;
+        const lx: number = px - frameX;
+        const ly: number = py - frameY;
+        return lx >= 2 && lx <= 52 && ly >= 8 && ly <= 26;
     }
 
     // Left-click on the run/spec orb -> fire the SAME native IF_BUTTON the real settings/specbar button fires.
