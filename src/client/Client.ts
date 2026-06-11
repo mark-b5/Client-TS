@@ -340,6 +340,12 @@ export class Client extends GameShell {
     private orbIconHitpoints: Pix8 | null = null;
     private orbIconPrayer: Pix8 | null = null;
     private orbIconAgility: Pix8 | null = null;
+    // OSRS data-orb sprites (frame/empty/per-stat fill+icon), loaded from public/client/orbs/*.png.
+    private orbImgFrame: HTMLImageElement | null = null;
+    private orbImgEmpty: HTMLImageElement | null = null;
+    private orbImgFill: { [key: string]: HTMLImageElement } = {};
+    private orbImgIcon: { [key: string]: HTMLImageElement } = {};
+    private orbTextScratch: Int32Array | null = null;
     private iconScratchCanvas: HTMLCanvasElement | null = null;
     private iconScratchCtx: CanvasRenderingContext2D | null = null;
     private redstone1: Pix8 | null = null;
@@ -1135,6 +1141,8 @@ export class Client extends GameShell {
                 this.orbIconPrayer = null;
                 this.orbIconAgility = null;
             }
+
+            this.loadOrbImages();
 
             for (let i: number = 0; i < 13; i++) {
                 this.sideicons[i] = Pix8.depack(media, 'sideicons', i);
@@ -4132,7 +4140,6 @@ export class Client extends GameShell {
         if (this.sceneState === 2) {
             this.minimapDraw();
             this.areaMap?.draw(550, 4);
-            this.drawStatusOrbs();
         }
 
         if (this.tutFlashIcon !== -1) {
@@ -4250,6 +4257,12 @@ export class Client extends GameShell {
             this.areaBackbase2?.draw(496, 466);
 
             this.areaGame?.setPixels();
+        }
+
+        // Orbs draw HERE -- after the side-tab strip (areaBackhmid1 @ 516,160) re-blits on redrawIcons frames
+        // -- so the low-hanging Special orb isn't clipped by it. Still every frame, over the live minimap.
+        if (this.sceneState === 2) {
+            this.drawStatusOrbs();
         }
 
         if (this.redrawChatMode) {
@@ -12347,12 +12360,153 @@ export class Client extends GameShell {
         const prayerCurrent: number = Math.max(0, this.statEffectiveLevel[5] | 0);
         const prayerBase: number = Math.max(1, this.statBaseLevel[5] | 0);
         const runCurrent: number = Math.max(0, Math.min(100, this.runenergy | 0));
+        // Special-attack energy: OSRS varp 300, 0..1000 (= 0..100% x10). If the server doesn't set it the
+        // orb just reads 0/empty.
+        const specRaw: number = this.var[300] | 0;
+        const specCurrent: number = Math.max(0, Math.min(100, (specRaw / 10) | 0));
 
-        // Draw on the main canvas after the minimap is blitted, so the stack sits on top of
-        // the frame instead of inside the clipped minimap buffer.
-        this.drawStatusPanel(516, 93, 42, 24, 'H', hpCurrent, hpCurrent, hpBase, 0xbe2d2d, 0x72ffab);
-        this.drawStatusPanel(534, 118, 42, 24, 'P', prayerCurrent, prayerCurrent, prayerBase, 0x2f77d8, 0x6ec8ff);
-        this.drawStatusPanel(551, 143, 42, 24, 'R', runCurrent, runCurrent, 100, 0x2aa455, 0x7dffab);
+        // Frame positions computed EXACTLY from OSRS interface data -- NO eyeballing. From orbs_osm.if3
+        // (iface 897) orb offsets + toplevel_osm.if3 (iface 601) container layout, each orb-sphere-centre is
+        // taken relative to the OSRS minimap centre, then re-anchored to OUR minimap centre (648,84) and
+        // converted to our frame top-left (sphere-centre - (40,17) for the 57-wide frame). Slight curve =
+        // the real OSRS layout.
+        this.drawOsrsOrb(519, 41, 'hp', hpCurrent, hpCurrent / hpBase);
+        this.drawOsrsOrb(517, 76, 'prayer', prayerCurrent, prayerCurrent / prayerBase);
+        this.drawOsrsOrb(528, 110, 'run', runCurrent, runCurrent / 100);
+        this.drawOsrsOrb(553, 133, 'spec', specCurrent, specCurrent / 100);
+    }
+
+    private loadOrbImages(): void {
+        const load = (name: string): HTMLImageElement => {
+            const img: HTMLImageElement = new Image();
+            img.src = new URL('orbs/' + name + '.png', import.meta.url).href;
+            return img;
+        };
+        this.orbImgFrame = load('frame');
+        this.orbImgEmpty = load('empty');
+        this.orbImgFill = { hp: load('hp'), prayer: load('prayer'), run: load('run'), spec: load('spec') };
+        this.orbImgIcon = { hp: load('hp_icon'), prayer: load('prayer_icon'), run: load('run_icon'), spec: load('spec_icon') };
+    }
+
+    // Green -> yellow -> red by stat fraction, like the OSRS orb value text.
+    private orbValueColour(pct: number): number {
+        const p: number = Math.max(0, Math.min(1, pct));
+        const r: number = p < 0.5 ? 255 : Math.round(255 * (1 - p) * 2);
+        const g: number = p > 0.5 ? 255 : Math.round(255 * p * 2);
+        return (r << 16) | (g << 8);
+    }
+
+    // One OSRS orb: frame (57x34) + sphere parts (26x26 at +27,+4): empty -> fill clipped to the stat %
+    // (drains top-down) -> icon, plus the value number on the left. Drawn in a RENDER_SCALE'd context so
+    // the native-size sprites pixel-double crisply at 2x.
+    private drawOsrsOrb(x: number, y: number, key: string, value: number, fillPct: number): void {
+        const frame: HTMLImageElement | null = this.orbImgFrame;
+        if (!frame || !frame.complete || frame.naturalWidth === 0) {
+            return; // sprites not loaded yet
+        }
+        const empty: HTMLImageElement | null = this.orbImgEmpty;
+        const fill: HTMLImageElement | undefined = this.orbImgFill[key];
+        const icon: HTMLImageElement | undefined = this.orbImgIcon[key];
+        const pct: number = Math.max(0, Math.min(1, fillPct));
+        const sx: number = x + 27;
+        const sy: number = y + 4;
+
+        canvas2d.save();
+        canvas2d.scale(Client.RENDER_SCALE, Client.RENDER_SCALE);
+        canvas2d.imageSmoothingEnabled = false;
+
+        canvas2d.drawImage(frame, x, y);
+        if (empty && empty.complete) {
+            canvas2d.drawImage(empty, sx, sy);
+        }
+        if (fill && fill.complete && pct > 0) {
+            const fh: number = Math.max(1, Math.round(26 * pct));
+            canvas2d.save();
+            canvas2d.beginPath();
+            canvas2d.rect(sx, sy + 26 - fh, 26, fh);
+            canvas2d.clip();
+            canvas2d.drawImage(fill, sx, sy);
+            canvas2d.restore();
+        }
+        if (icon && icon.complete) {
+            canvas2d.drawImage(icon, sx, sy);
+        }
+
+        // Value number on the left of the orb, in the in-game p11 font (orbs.if3 box: 23x13 at x=4,y=16).
+        this.drawOrbValue(String(Math.max(0, value | 0)), x + 15, y + 22, this.orbValueColour(pct));
+
+        canvas2d.restore();
+    }
+
+    // Render the orb value in the in-game p11 font onto the (already RENDER_SCALE'd) canvas. p11 draws into
+    // Pix2D, so we hijack it to a tiny transparent scratch, then blit that scratch as a 2x drawImage.
+    private drawOrbValue(text: string, cx: number, cy: number, colour: number): void {
+        const font = this.p11;
+        if (!font) {
+            return;
+        }
+        const w: number = 26;
+        const h: number = 14;
+        if (!this.orbTextScratch) {
+            this.orbTextScratch = new Int32Array(w * h);
+        }
+        const scratch: Int32Array = this.orbTextScratch;
+        scratch.fill(0); // black bg: p11 anti-aliases its glyph edges into the bg, so render on black and
+        // derive alpha from each pixel's brightness -- keeps smooth edges with no coloured-sentinel halo.
+
+        // Hijack the global Pix2D target to render the glyphs into the scratch, then restore it.
+        const savedPixels: Int32Array = Pix2D.pixels;
+        const savedW: number = Pix2D.width;
+        const savedH: number = Pix2D.height;
+        const cMinX: number = Pix2D.clipMinX;
+        const cMinY: number = Pix2D.clipMinY;
+        const cMaxX: number = Pix2D.clipMaxX;
+        const cMaxY: number = Pix2D.clipMaxY;
+        Pix2D.setPixels(scratch, w, h);
+        const baseline: number = ((h / 2) | 0) + ((font.height / 2) | 0);
+        font.centreString(text, (w / 2) | 0, baseline, 0xffffff); // white -> per-pixel brightness is the glyph alpha
+        Pix2D.setPixels(savedPixels, savedW, savedH);
+        Pix2D.setClipping(cMinX, cMinY, cMaxX, cMaxY);
+
+        if (!this.iconScratchCanvas) {
+            this.iconScratchCanvas = document.createElement('canvas');
+            this.iconScratchCtx = this.iconScratchCanvas.getContext('2d');
+        }
+        const ictx: CanvasRenderingContext2D | null = this.iconScratchCtx;
+        if (!ictx) {
+            return;
+        }
+        this.iconScratchCanvas.width = w;
+        this.iconScratchCanvas.height = h;
+        const img: ImageData = ictx.createImageData(w, h);
+        const buf: Uint32Array = new Uint32Array(img.data.buffer);
+        const cr: number = (colour >> 16) & 0xff;
+        const cg: number = (colour >> 8) & 0xff;
+        const cb: number = colour & 0xff;
+        for (let y: number = 0; y < h; y++) {
+            for (let x: number = 0; x < w; x++) {
+                const va: number = scratch[y * w + x] & 0xff; // glyph alpha at this pixel
+                const sa: number = x >= 1 && y >= 1 ? scratch[(y - 1) * w + (x - 1)] & 0xff : 0; // black shadow, offset +1,+1
+                let a: number;
+                let r: number;
+                let g: number;
+                let b: number;
+                if (va >= sa) {
+                    a = va;
+                    r = cr;
+                    g = cg;
+                    b = cb;
+                } else {
+                    a = sa;
+                    r = 0;
+                    g = 0;
+                    b = 0;
+                }
+                buf[y * w + x] = ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+            }
+        }
+        ictx.putImageData(img, 0, 0);
+        canvas2d.drawImage(this.iconScratchCanvas, cx - ((w / 2) | 0), cy - ((h / 2) | 0));
     }
 
     // x/y are absolute canvas coords. Badge is on the RIGHT, straddling the minimap frame edge.

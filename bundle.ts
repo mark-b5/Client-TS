@@ -159,6 +159,16 @@ for (const dir of outputDirs) {
     }
 
     fs.copyFileSync('src/3rdparty/tinymidipcm/tinymidipcm.wasm', path.join(dir, 'tinymidipcm.wasm'));
+
+    // OSRS data-orb sprites (loaded at runtime via new URL('orbs/<name>.png', import.meta.url)).
+    const orbsSrc = 'src/client/orbs';
+    if (fs.existsSync(orbsSrc)) {
+        const orbsDst = path.join(dir, 'orbs');
+        fs.mkdirSync(orbsDst, { recursive: true });
+        for (const f of fs.readdirSync(orbsSrc)) {
+            fs.copyFileSync(path.join(orbsSrc, f), path.join(orbsDst, f));
+        }
+    }
 }
 
 const args = process.argv.slice(2);
