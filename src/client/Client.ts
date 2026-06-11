@@ -5712,11 +5712,46 @@ export class Client extends GameShell {
         if (this.rightClickTileX === -1) {
             return;
         }
-        this.toggleTileMarker(this.tileMarkerBaseX() + this.rightClickTileX, this.tileMarkerBaseZ() + this.rightClickTileZ, this.minusedlevel);
+        const ow = this.localToOverworld(this.rightClickTileX, this.rightClickTileZ);
+        if (ow) {
+            this.toggleTileMarker(ow.x, ow.z, ow.level);
+        }
     }
 
     private isLocalTileMarked(localX: number, localZ: number): boolean {
-        return this.findTileMarker(this.tileMarkerBaseX() + localX, this.tileMarkerBaseZ() + localZ, this.minusedlevel) >= 0;
+        const ow = this.localToOverworld(localX, localZ);
+        return ow ? this.findTileMarker(ow.x, ow.z, ow.level) >= 0 : false;
+    }
+
+    // Map a loaded LOCAL tile to its OVERWORLD source tile + plane. Overworld = base offset; instance = decode
+    // the chunk's template descriptor and REVERSE the chunk rotation. Markers always live in overworld coords,
+    // so in an instance we mark/check the equivalent overworld tile. Returns null for an unbuilt instance chunk.
+    private localToOverworld(localX: number, localZ: number): { x: number; z: number; level: number } | null {
+        if (localX < 0 || localZ < 0 || localX >= 104 || localZ >= 104) {
+            return null;
+        }
+        if (!this.mapBuildInstanced) {
+            return { x: this.tileMarkerBaseX() + localX, z: this.tileMarkerBaseZ() + localZ, level: this.minusedlevel };
+        }
+        const template: number = this.mapBuildRegions[this.minusedlevel][localX >> 3][localZ >> 3];
+        if (template === -1) {
+            return null;
+        }
+        const inv: number = (4 - ((template >> 1) & 0x3)) & 0x3; // reverse the chunk's copy rotation
+        const mtx: number = Client.rotChunkX(inv, localX & 0x7, localZ & 0x7);
+        const mtz: number = Client.rotChunkZ(inv, localX & 0x7, localZ & 0x7);
+        return { x: ((template >> 14) & 0x3ff) * 8 + mtx, z: ((template >> 3) & 0x7ff) * 8 + mtz, level: (template >> 24) & 0x3 };
+    }
+
+    // Chunk rotation a template chunk gets when copied into an instance (mirrors ClientBuild.rotateChunkX/Z).
+    private static rotChunkX(r: number, x: number, z: number): number {
+        r &= 0x3;
+        return r === 0 ? x : r === 1 ? z : r === 2 ? 7 - x : 7 - z;
+    }
+
+    private static rotChunkZ(r: number, x: number, z: number): number {
+        r &= 0x3;
+        return r === 0 ? z : r === 1 ? 7 - x : r === 2 ? 7 - z : x;
     }
 
     private drawTileMarkers(): void {
@@ -5726,46 +5761,82 @@ export class Client extends GameShell {
         if (this.tileMarkers.length === 0) {
             return;
         }
+        if (this.mapBuildInstanced) {
+            this.drawTileMarkersInstanced();
+            return;
+        }
         const baseX: number = this.tileMarkerBaseX();
         const baseZ: number = this.tileMarkerBaseZ();
         for (let i: number = 0; i < this.tileMarkers.length; i++) {
             const m = this.tileMarkers[i];
-            if (m.z !== this.minusedlevel) {
-                continue;
+            if (m.z === this.minusedlevel) {
+                this.drawMarkerSquare((m.regionId >> 8) * 64 + m.regionX - baseX, (m.regionId & 0xff) * 64 + m.regionY - baseZ, m.color);
             }
-            const tileX: number = (m.regionId >> 8) * 64 + m.regionX - baseX;
-            const tileZ: number = (m.regionId & 0xff) * 64 + m.regionY - baseZ;
-            if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
-                continue;
-            }
-            const argb: number = parseInt(m.color.slice(1), 16);
-            const rgb: number = argb & 0xffffff;
-            const aa: number = (argb >>> 24) & 0xff;
-            const alpha: number = aa >= 255 ? 256 : aa;
-            const x0: number = tileX << 7;
-            const z0: number = tileZ << 7;
-            const x1: number = x0 + 128;
-            const z1: number = z0 + 128;
-            this.getOverlayPos(x0, z0, 0);
-            const sx0: number = this.projectX;
-            const sy0: number = this.projectY;
-            this.getOverlayPos(x1, z0, 0);
-            const sx1: number = this.projectX;
-            const sy1: number = this.projectY;
-            this.getOverlayPos(x1, z1, 0);
-            const sx2: number = this.projectX;
-            const sy2: number = this.projectY;
-            this.getOverlayPos(x0, z1, 0);
-            const sx3: number = this.projectX;
-            const sy3: number = this.projectY;
-            if (sx0 === -1 || sx1 === -1 || sx2 === -1 || sx3 === -1) {
-                continue; // a corner is off-screen / behind the camera -> skip this marker
-            }
-            this.drawLine2D(sx0, sy0, sx1, sy1, rgb, alpha);
-            this.drawLine2D(sx1, sy1, sx2, sy2, rgb, alpha);
-            this.drawLine2D(sx2, sy2, sx3, sy3, rgb, alpha);
-            this.drawLine2D(sx3, sy3, sx0, sy0, rgb, alpha);
         }
+    }
+
+    // In an instance, markers live in overworld coords -> render every loaded instance chunk that copies a
+    // template chunk containing a marker, transformed (chunk offset + rotation) into the instance tile. A
+    // template reused N times shows the marker in all N copies, like RuneLite.
+    private drawTileMarkersInstanced(): void {
+        const regions = this.mapBuildRegions[this.minusedlevel];
+        for (let cx: number = 0; cx < 13; cx++) {
+            for (let cz: number = 0; cz < 13; cz++) {
+                const template: number = regions[cx][cz];
+                if (template === -1) {
+                    continue;
+                }
+                const rotation: number = (template >> 1) & 0x3;
+                const sourceLevel: number = (template >> 24) & 0x3;
+                const srcBaseX: number = ((template >> 14) & 0x3ff) * 8;
+                const srcBaseZ: number = ((template >> 3) & 0x7ff) * 8;
+                for (let i: number = 0; i < this.tileMarkers.length; i++) {
+                    const m = this.tileMarkers[i];
+                    if (m.z !== sourceLevel) {
+                        continue;
+                    }
+                    const lx: number = (m.regionId >> 8) * 64 + m.regionX - srcBaseX;
+                    const lz: number = (m.regionId & 0xff) * 64 + m.regionY - srcBaseZ;
+                    if (lx < 0 || lx >= 8 || lz < 0 || lz >= 8) {
+                        continue;
+                    }
+                    this.drawMarkerSquare(cx * 8 + Client.rotChunkX(rotation, lx, lz), cz * 8 + Client.rotChunkZ(rotation, lx, lz), m.color);
+                }
+            }
+        }
+    }
+
+    private drawMarkerSquare(tileX: number, tileZ: number, color: string): void {
+        if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+            return;
+        }
+        const argb: number = parseInt(color.slice(1), 16);
+        const rgb: number = argb & 0xffffff;
+        const aa: number = (argb >>> 24) & 0xff;
+        const alpha: number = aa >= 255 ? 256 : aa;
+        const x0: number = tileX << 7;
+        const z0: number = tileZ << 7;
+        const x1: number = x0 + 128;
+        const z1: number = z0 + 128;
+        this.getOverlayPos(x0, z0, 0);
+        const sx0: number = this.projectX;
+        const sy0: number = this.projectY;
+        this.getOverlayPos(x1, z0, 0);
+        const sx1: number = this.projectX;
+        const sy1: number = this.projectY;
+        this.getOverlayPos(x1, z1, 0);
+        const sx2: number = this.projectX;
+        const sy2: number = this.projectY;
+        this.getOverlayPos(x0, z1, 0);
+        const sx3: number = this.projectX;
+        const sy3: number = this.projectY;
+        if (sx0 === -1 || sx1 === -1 || sx2 === -1 || sx3 === -1) {
+            return; // a corner is off-screen / behind the camera
+        }
+        this.drawLine2D(sx0, sy0, sx1, sy1, rgb, alpha);
+        this.drawLine2D(sx1, sy1, sx2, sy2, rgb, alpha);
+        this.drawLine2D(sx2, sy2, sx3, sy3, rgb, alpha);
+        this.drawLine2D(sx3, sy3, sx0, sy0, rgb, alpha);
     }
 
     private getOverlayPos(x: number, z: number, height: number): void {
