@@ -342,7 +342,13 @@ export class Client extends GameShell {
     private orbIconAgility: Pix8 | null = null;
     // OSRS data-orb sprites (frame/empty/per-stat fill+icon), loaded from public/client/orbs/*.png.
     private orbImgFrame: HTMLImageElement | null = null;
+    private orbImgFrameHovered: HTMLImageElement | null = null;
     private orbImgEmpty: HTMLImageElement | null = null;
+    // Clickable orb frame positions (logical) -- shared by drawStatusOrbs (render) + handleOrbClick (hit-test).
+    private static readonly RUN_ORB_X: number = 528;
+    private static readonly RUN_ORB_Y: number = 110;
+    private static readonly SPEC_ORB_X: number = 553;
+    private static readonly SPEC_ORB_Y: number = 133;
     private orbImgFill: { [key: string]: HTMLImageElement } = {};
     private orbImgIcon: { [key: string]: HTMLImageElement } = {};
     private orbTextScratch: Int32Array | null = null;
@@ -2875,6 +2881,10 @@ export class Client extends GameShell {
 
     minimapLoop(): void {
         if (this.minimapState !== 0 || this.mouseClickButton !== 1 || !this.localPlayer) {
+            return;
+        }
+
+        if (this.handleOrbClick(this.mouseClickX, this.mouseClickY)) {
             return;
         }
 
@@ -12364,16 +12374,21 @@ export class Client extends GameShell {
         // orb just reads 0/empty.
         const specRaw: number = this.var[300] | 0;
         const specCurrent: number = Math.max(0, Math.min(100, (specRaw / 10) | 0));
+        // Toggle states: run enabled (varp 173 = option_run) -> yellow run orb; special enabled
+        // (varp 301 = sa_attack) -> activated special orb.
+        const runOn: boolean = (this.var[173] | 0) === 1;
+        const specOn: boolean = (this.var[301] | 0) === 1;
 
-        // Frame positions computed EXACTLY from OSRS interface data -- NO eyeballing. From orbs_osm.if3
-        // (iface 897) orb offsets + toplevel_osm.if3 (iface 601) container layout, each orb-sphere-centre is
-        // taken relative to the OSRS minimap centre, then re-anchored to OUR minimap centre (648,84) and
-        // converted to our frame top-left (sphere-centre - (40,17) for the 57-wide frame). Slight curve =
-        // the real OSRS layout.
+        // Orb frame positions: started from OSRS interface data (orbs_osm.if3 iface 897 + toplevel_osm.if3
+        // iface 601) but hand-calibrated against an OSRS fixed-mode reference, because our 274 minimap is
+        // shaped slightly differently than OSRS so a pure data-map didn't line up. Logical (1x) coords,
+        // drawn in a scale(RENDER_SCALE) context. Sphere centre = frame + (40,17).
+        const runHover: boolean = this.orbHit(Client.RUN_ORB_X, Client.RUN_ORB_Y, this.mouseX, this.mouseY);
+        const specHover: boolean = this.orbHit(Client.SPEC_ORB_X, Client.SPEC_ORB_Y, this.mouseX, this.mouseY) && this.findActiveSpecbar() !== -1;
         this.drawOsrsOrb(519, 41, 'hp', hpCurrent, hpCurrent / hpBase);
         this.drawOsrsOrb(517, 76, 'prayer', prayerCurrent, prayerCurrent / prayerBase);
-        this.drawOsrsOrb(528, 110, 'run', runCurrent, runCurrent / 100);
-        this.drawOsrsOrb(553, 133, 'spec', specCurrent, specCurrent / 100);
+        this.drawOsrsOrb(Client.RUN_ORB_X, Client.RUN_ORB_Y, runOn ? 'run_on' : 'run', runCurrent, runCurrent / 100, runHover);
+        this.drawOsrsOrb(Client.SPEC_ORB_X, Client.SPEC_ORB_Y, specOn ? 'spec_on' : 'spec', specCurrent, specCurrent / 100, specHover);
     }
 
     private loadOrbImages(): void {
@@ -12383,9 +12398,10 @@ export class Client extends GameShell {
             return img;
         };
         this.orbImgFrame = load('frame');
+        this.orbImgFrameHovered = load('frame_hovered');
         this.orbImgEmpty = load('empty');
-        this.orbImgFill = { hp: load('hp'), prayer: load('prayer'), run: load('run'), spec: load('spec') };
-        this.orbImgIcon = { hp: load('hp_icon'), prayer: load('prayer_icon'), run: load('run_icon'), spec: load('spec_icon') };
+        this.orbImgFill = { hp: load('hp'), prayer: load('prayer'), run: load('run'), spec: load('spec'), run_on: load('run_on'), spec_on: load('spec_on') };
+        this.orbImgIcon = { hp: load('hp_icon'), prayer: load('prayer_icon'), run: load('run_icon'), spec: load('spec_icon'), run_on: load('run_icon_on'), spec_on: load('spec_icon') };
     }
 
     // Green -> yellow -> red by stat fraction, like the OSRS orb value text.
@@ -12399,8 +12415,9 @@ export class Client extends GameShell {
     // One OSRS orb: frame (57x34) + sphere parts (26x26 at +27,+4): empty -> fill clipped to the stat %
     // (drains top-down) -> icon, plus the value number on the left. Drawn in a RENDER_SCALE'd context so
     // the native-size sprites pixel-double crisply at 2x.
-    private drawOsrsOrb(x: number, y: number, key: string, value: number, fillPct: number): void {
-        const frame: HTMLImageElement | null = this.orbImgFrame;
+    private drawOsrsOrb(x: number, y: number, key: string, value: number, fillPct: number, hovered: boolean = false): void {
+        const hov: HTMLImageElement | null = this.orbImgFrameHovered;
+        const frame: HTMLImageElement | null = hovered && hov && hov.complete && hov.naturalWidth !== 0 ? hov : this.orbImgFrame;
         if (!frame || !frame.complete || frame.naturalWidth === 0) {
             return; // sprites not loaded yet
         }
@@ -12507,6 +12524,88 @@ export class Client extends GameShell {
         }
         ictx.putImageData(img, 0, 0);
         canvas2d.drawImage(this.iconScratchCanvas, cx - ((w / 2) | 0), cy - ((h / 2) | 0));
+    }
+
+    // Hit-test (px,py) against an orb's sphere (frame + (40,17) centre, radius 13). Logical coords.
+    private orbHit(frameX: number, frameY: number, px: number, py: number): boolean {
+        const dx: number = px - (frameX + 40);
+        const dy: number = py - (frameY + 17);
+        return dx * dx + dy * dy <= 169;
+    }
+
+    // Left-click on the run/spec orb -> fire the SAME native IF_BUTTON the real settings/specbar button fires.
+    // Returns true if consumed (so the minimap walk is skipped). Run reuses controls:com_4/com_5 (ids 152/153,
+    // always visible since controls is a persistent tab); spec routes to the equipped weapon's live specbar.
+    private handleOrbClick(px: number, py: number): boolean {
+        if (this.orbHit(Client.RUN_ORB_X, Client.RUN_ORB_Y, px, py)) {
+            const com: number = (this.var[173] | 0) === 1 ? 152 : 153; // running -> com_4 (walk); walking -> com_5 (run)
+            this.out.p1Enc(ClientProt.IF_BUTTON);
+            this.out.p2(com);
+            this.applyButtonVar(com); // optimistic local varp flip, so the orb updates instantly like settings
+            return true;
+        }
+        if (this.orbHit(Client.SPEC_ORB_X, Client.SPEC_ORB_Y, px, py)) {
+            const specbar: number = this.findActiveSpecbar();
+            if (specbar !== -1) {
+                this.out.p1Enc(ClientProt.IF_BUTTON);
+                this.out.p2(specbar);
+            }
+            return true; // consume even with no spec weapon, so we never walk on a spec-orb click
+        }
+        return false;
+    }
+
+    // Mirror the client's SELECT_BUTTON optimistic local-varp update (see the menu action handler) for a
+    // select button like run/walk: set the varp to the component's compare operand so the UI flips instantly
+    // instead of waiting for the server round-trip. Same code path the settings buttons use.
+    private applyButtonVar(comId: number): void {
+        const com: IfType = IfType.list[comId];
+        if (com && com.scripts && com.scripts[0] && com.scripts[0][0] === 5 && com.scriptOperand) {
+            const varp: number = com.scripts[0][1];
+            if (this.var[varp] !== com.scriptOperand[0]) {
+                this.var[varp] = com.scriptOperand[0];
+                this.clientVar(varp);
+                this.redrawSide = true;
+            }
+        }
+    }
+
+    // The equipped weapon's live "Use Special Attack" component, only if it's currently shown (weapon has a
+    // special). Walks the loaded tab interfaces' component trees; returns -1 if none/hidden.
+    private findActiveSpecbar(): number {
+        for (let tab: number = 0; tab < this.sideIcon.length; tab++) {
+            const root: number = this.sideIcon[tab];
+            if (root === -1) {
+                continue;
+            }
+            const found: number = this.searchSpecbar(root, false);
+            if (found !== -1) {
+                return found;
+            }
+        }
+        return -1;
+    }
+
+    private searchSpecbar(comId: number, parentHidden: boolean): number {
+        const com: IfType = IfType.list[comId];
+        if (!com) {
+            return -1;
+        }
+        const hidden: boolean = parentHidden || com.hide;
+        // The specbar is the clickable yellow (0xFFFF00) rect. This client stores no button option text, so
+        // match structurally; its parent specbar_layer's hide (= weapon has the specwep param) gates it.
+        if (com.type === ComponentType.TYPE_RECT && com.colour === 0xffff00) {
+            return hidden ? -1 : comId;
+        }
+        if (com.children) {
+            for (let i: number = 0; i < com.children.length; i++) {
+                const found: number = this.searchSpecbar(com.children[i], hidden);
+                if (found !== -1) {
+                    return found;
+                }
+            }
+        }
+        return -1;
     }
 
     // x/y are absolute canvas coords. Badge is on the RIGHT, straddling the minimap frame edge.
