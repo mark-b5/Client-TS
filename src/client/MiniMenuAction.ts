@@ -50,6 +50,7 @@ export const enum MiniMenuAction {
     INV_BUTTON5 = 354,
 
     WALK = 718,
+    MARK_TILE = 990, // b5scape custom: tile-marker toggle (client-only, never sent to server)
 
     IF_BUTTON = 231,
     TGT_BUTTON = 274, // select target for spell

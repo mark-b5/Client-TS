@@ -602,6 +602,15 @@ export class Client extends GameShell {
     private showHoveredTrueTile: boolean = true;
     private showPriorityOutline: boolean = true;
     private hoveredTileAlpha: number = 152;
+    // Right-clicked-tile memory: the world tile under the cursor when the right-click menu opened (LOCAL
+    // tile coords; -1 = none). Walk here / Mark tile use THIS, not a re-pick against the live camera.
+    private rightClickTileX: number = -1;
+    private rightClickTileZ: number = -1;
+    private hoverTileWalkable: boolean = false; // live hovered tile is a plain walk -> gates the hover outline
+    private rightClickTileShown: boolean = false; // captured tile was a lit walkable hover -> keep it lit while the menu is open
+    // Tile markers (RuneLite ground-marker format, persisted to localStorage). Yellow square outlines on world tiles.
+    private tileMarkers: { regionId: number; regionX: number; regionY: number; z: number; color: string; label?: string }[] = [];
+    private tileMarkersLoaded: boolean = false;
     private fKeyToSideIcon: Int32Array = new Int32Array(10);
 
     // ----
@@ -616,6 +625,7 @@ export class Client extends GameShell {
         this.resize(765 * Client.RENDER_SCALE, 503 * Client.RENDER_SCALE);
         canvas.style.width = 765 * 2 + 'px';
         canvas.style.height = 503 * 2 + 'px';
+        this.loadTileMarkers(); // tile markers persist in localStorage
         this.searchParams = new URLSearchParams(window.location.search);
         this.fKeyToSideIcon.fill(-1);
 
@@ -4421,7 +4431,10 @@ export class Client extends GameShell {
             }
         }
 
-        if (this.showHoveredTrueTile && !this.isMenuOpen && leftClickAction === MiniMenuAction.WALK) {
+        // Resolve the tile under the cursor every frame regardless of the outline setting, so the right-click
+        // menu can capture the exact tile (Walk here / Mark tile). Gated only on the menu being closed.
+        this.hoverTileWalkable = leftClickAction === MiniMenuAction.WALK;
+        if (!this.isMenuOpen) {
             this.world?.updateMouseHover((this.mouseX - 4) * Client.RENDER_SCALE, (this.mouseY - 4) * Client.RENDER_SCALE);
         } else {
             this.world?.clearMouseHover();
@@ -4429,6 +4442,7 @@ export class Client extends GameShell {
 
         this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
+        this.drawTileMarkers();
         this.drawPriorityEntityOutline();
         this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
@@ -5490,12 +5504,22 @@ export class Client extends GameShell {
             return;
         }
 
-        if (World.hoverGroundX === -1 || World.hoverGroundZ === -1) {
-            return;
+        let tileX: number;
+        let tileZ: number;
+        if (this.isMenuOpen) {
+            // Keep the highlight pinned to the tile the open WORLD menu captured (only if it was a lit hover).
+            if (this.menuArea !== 0 || !this.rightClickTileShown || this.rightClickTileX === -1) {
+                return;
+            }
+            tileX = this.rightClickTileX;
+            tileZ = this.rightClickTileZ;
+        } else {
+            if (!this.hoverTileWalkable || World.hoverGroundX === -1 || World.hoverGroundZ === -1) {
+                return;
+            }
+            tileX = World.hoverGroundX;
+            tileZ = World.hoverGroundZ;
         }
-
-        const tileX: number = World.hoverGroundX;
-        const tileZ: number = World.hoverGroundZ;
 
         if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
             return;
@@ -5625,6 +5649,122 @@ export class Client extends GameShell {
                 err += dx;
                 fromY += sy;
             }
+        }
+    }
+
+    // --- Tile markers (RuneLite ground-marker format; client-only, persisted to localStorage) ---
+
+    private tileMarkerBaseX(): number {
+        return (this.mapBuildCentreZoneX - 6) << 3; // world tile of local (0,0): scene is 13 zones, player-centred
+    }
+
+    private tileMarkerBaseZ(): number {
+        return (this.mapBuildCentreZoneZ - 6) << 3;
+    }
+
+    private loadTileMarkers(): void {
+        this.tileMarkersLoaded = true;
+        try {
+            const raw: string | null = localStorage.getItem('b5scape:tilemarkers');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    this.tileMarkers = arr.filter(m => m && typeof m.regionId === 'number' && typeof m.color === 'string');
+                }
+            }
+        } catch (_e) {
+            this.tileMarkers = [];
+        }
+    }
+
+    private saveTileMarkers(): void {
+        try {
+            localStorage.setItem('b5scape:tilemarkers', JSON.stringify(this.tileMarkers));
+        } catch (_e) {
+            // storage unavailable -> markers persist in memory for this session only
+        }
+    }
+
+    private findTileMarker(absX: number, absZ: number, level: number): number {
+        const regionId: number = ((absX >> 6) << 8) | (absZ >> 6);
+        const regionX: number = absX & 63;
+        const regionY: number = absZ & 63;
+        for (let i: number = 0; i < this.tileMarkers.length; i++) {
+            const m = this.tileMarkers[i];
+            if (m.regionId === regionId && m.regionX === regionX && m.regionY === regionY && m.z === level) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private toggleTileMarker(absX: number, absZ: number, level: number): void {
+        const idx: number = this.findTileMarker(absX, absZ, level);
+        if (idx >= 0) {
+            this.tileMarkers.splice(idx, 1);
+        } else {
+            this.tileMarkers.push({ regionId: ((absX >> 6) << 8) | (absZ >> 6), regionX: absX & 63, regionY: absZ & 63, z: level, color: '#FFFFFF00' });
+        }
+        this.saveTileMarkers();
+    }
+
+    private toggleTileMarkerAtCapture(): void {
+        if (this.rightClickTileX === -1) {
+            return;
+        }
+        this.toggleTileMarker(this.tileMarkerBaseX() + this.rightClickTileX, this.tileMarkerBaseZ() + this.rightClickTileZ, this.minusedlevel);
+    }
+
+    private isLocalTileMarked(localX: number, localZ: number): boolean {
+        return this.findTileMarker(this.tileMarkerBaseX() + localX, this.tileMarkerBaseZ() + localZ, this.minusedlevel) >= 0;
+    }
+
+    private drawTileMarkers(): void {
+        if (!this.tileMarkersLoaded) {
+            this.loadTileMarkers();
+        }
+        if (this.tileMarkers.length === 0) {
+            return;
+        }
+        const baseX: number = this.tileMarkerBaseX();
+        const baseZ: number = this.tileMarkerBaseZ();
+        for (let i: number = 0; i < this.tileMarkers.length; i++) {
+            const m = this.tileMarkers[i];
+            if (m.z !== this.minusedlevel) {
+                continue;
+            }
+            const tileX: number = (m.regionId >> 8) * 64 + m.regionX - baseX;
+            const tileZ: number = (m.regionId & 0xff) * 64 + m.regionY - baseZ;
+            if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+                continue;
+            }
+            const argb: number = parseInt(m.color.slice(1), 16);
+            const rgb: number = argb & 0xffffff;
+            const aa: number = (argb >>> 24) & 0xff;
+            const alpha: number = aa >= 255 ? 256 : aa;
+            const x0: number = tileX << 7;
+            const z0: number = tileZ << 7;
+            const x1: number = x0 + 128;
+            const z1: number = z0 + 128;
+            this.getOverlayPos(x0, z0, 0);
+            const sx0: number = this.projectX;
+            const sy0: number = this.projectY;
+            this.getOverlayPos(x1, z0, 0);
+            const sx1: number = this.projectX;
+            const sy1: number = this.projectY;
+            this.getOverlayPos(x1, z1, 0);
+            const sx2: number = this.projectX;
+            const sy2: number = this.projectY;
+            this.getOverlayPos(x0, z1, 0);
+            const sx3: number = this.projectX;
+            const sy3: number = this.projectY;
+            if (sx0 === -1 || sx1 === -1 || sx2 === -1 || sx3 === -1) {
+                continue; // a corner is off-screen / behind the camera -> skip this marker
+            }
+            this.drawLine2D(sx0, sy0, sx1, sy1, rgb, alpha);
+            this.drawLine2D(sx1, sy1, sx2, sy2, rgb, alpha);
+            this.drawLine2D(sx2, sy2, sx3, sy3, rgb, alpha);
+            this.drawLine2D(sx3, sy3, sx0, sy0, rgb, alpha);
         }
     }
 
@@ -9465,6 +9605,13 @@ export class Client extends GameShell {
                 y = 0;
             }
 
+            if (!this.isMenuOpen) {
+                // Remember the tile under the cursor as the menu opens (the right-clicked tile) so Walk here /
+                // Mark tile act on it instead of re-picking against the live camera.
+                this.rightClickTileX = World.hoverGroundX;
+                this.rightClickTileZ = World.hoverGroundZ;
+                this.rightClickTileShown = this.hoverTileWalkable; // keep the highlight lit if it was showing
+            }
             this.isMenuOpen = true;
             this.menuArea = 0;
             this.menuX = x;
@@ -10205,11 +10352,19 @@ export class Client extends GameShell {
         }
 
         if (action === MiniMenuAction.WALK) {
-            if (this.isMenuOpen) {
+            if (this.isMenuOpen && this.rightClickTileX !== -1) {
+                // Walk to the tile we right-clicked (captured at menu-open), not a re-pick from the live camera.
+                World.groundX = this.rightClickTileX;
+                World.groundZ = this.rightClickTileZ;
+            } else if (this.isMenuOpen) {
                 this.world?.updateMousePicking((b - 4) * Client.RENDER_SCALE, (c - 4) * Client.RENDER_SCALE);
             } else {
                 this.world?.updateMousePicking((this.mouseClickX - 4) * Client.RENDER_SCALE, (this.mouseClickY - 4) * Client.RENDER_SCALE);
             }
+        }
+
+        if (action === MiniMenuAction.MARK_TILE) {
+            this.toggleTileMarkerAtCapture();
         }
 
         if (action === MiniMenuAction.FRIENDLIST_ADD || action === MiniMenuAction.IGNORELIST_ADD || action === MiniMenuAction.FRIENDLIST_DEL || action === MiniMenuAction.IGNORELIST_DEL) {
@@ -10264,6 +10419,13 @@ export class Client extends GameShell {
 
     private addWorldOptions(): void {
         if (this.useMode === 0 && this.targetMode === 0) {
+            // Shift-right-click: Mark / Unmark the hovered tile. Added BEFORE 'Walk here' so Walk stays the
+            // left-click default (the menu sort keeps Walk last among these same-priority options).
+            if (this.shiftHeld && World.hoverGroundX !== -1 && World.hoverGroundZ !== -1) {
+                this.menuOption[this.menuNumEntries] = this.isLocalTileMarked(World.hoverGroundX, World.hoverGroundZ) ? 'Unmark tile' : 'Mark tile';
+                this.menuAction[this.menuNumEntries] = MiniMenuAction.MARK_TILE;
+                this.menuNumEntries++;
+            }
             this.menuOption[this.menuNumEntries] = 'Walk here';
             this.menuAction[this.menuNumEntries] = MiniMenuAction.WALK;
             this.menuParamB[this.menuNumEntries] = this.mouseX;

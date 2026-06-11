@@ -34,6 +34,7 @@ export default abstract class GameShell {
     protected keyQueue: number[] = [];
     protected keyQueueReadPos: number = 0;
     protected keyQueueWritePos: number = 0;
+    protected shiftHeld: boolean = false; // physical shift-key state (shift-right-click tile markers, etc.)
 
     /// custom
     protected resizeToFit: boolean = false;
@@ -435,6 +436,7 @@ export default abstract class GameShell {
 
     private onkeydown(e: KeyboardEvent) {
         this.idleTimer = performance.now();
+        this.shiftHeld = e.shiftKey;
 
         const keyCode = KeyCodes.get(e.key);
         if (!keyCode || (e.code.length === 0 && !e.isTrusted)) {
@@ -495,6 +497,7 @@ export default abstract class GameShell {
         // }
 
         this.idleTimer = performance.now();
+        this.shiftHeld = e.shiftKey;
 
         const keyCode = KeyCodes.get(e.key);
         if (!keyCode || (e.code.length === 0 && !e.isTrusted)) {
