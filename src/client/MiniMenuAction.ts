@@ -51,6 +51,7 @@ export const enum MiniMenuAction {
 
     WALK = 718,
     MARK_TILE = 990, // b5scape custom: tile-marker toggle (client-only, never sent to server)
+    TAG_NPC = 991, // b5scape custom: tag/untag an npc name for true-tile marking (client-only)
 
     IF_BUTTON = 231,
     TGT_BUTTON = 274, // select target for spell

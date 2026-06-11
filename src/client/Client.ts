@@ -611,6 +611,8 @@ export class Client extends GameShell {
     // Tile markers (RuneLite ground-marker format, persisted to localStorage). Yellow square outlines on world tiles.
     private tileMarkers: { regionId: number; regionX: number; regionY: number; z: number; color: string; label?: string }[] = [];
     private tileMarkersLoaded: boolean = false;
+    private taggedNpcNames: Set<string> = new Set<string>(); // npc NAMES whose true tile we mark (light blue box)
+    private taggedNpcsLoaded: boolean = false;
     private fKeyToSideIcon: Int32Array = new Int32Array(10);
 
     // ----
@@ -4471,6 +4473,7 @@ export class Client extends GameShell {
         this.world?.renderAll(this.camX, this.camY, this.camZ, level, this.camYaw, this.camPitch, renderRadius, maxDrawDistance);
         this.world?.removeSprites();
         this.drawTileMarkers();
+        this.drawTaggedNpcs();
         this.drawPriorityEntityOutline();
         this.drawHoveredTileOutline();
         this.drawLocalPlayerTileOutline();
@@ -5711,6 +5714,99 @@ export class Client extends GameShell {
         } catch (_e) {
             // storage unavailable -> markers persist in memory for this session only
         }
+    }
+
+    private loadNpcTags(): void {
+        this.taggedNpcsLoaded = true;
+        try {
+            const raw: string | null = localStorage.getItem('b5scape:taggednpcs');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    this.taggedNpcNames = new Set<string>(arr.filter((n): n is string => typeof n === 'string'));
+                }
+            }
+        } catch (_e) {
+            this.taggedNpcNames = new Set<string>();
+        }
+    }
+
+    private saveNpcTags(): void {
+        try {
+            localStorage.setItem('b5scape:taggednpcs', JSON.stringify([...this.taggedNpcNames]));
+        } catch (_e) {
+            // storage unavailable -> tags persist in memory for this session only
+        }
+    }
+
+    private isNpcTagged(name: string): boolean {
+        if (!this.taggedNpcsLoaded) {
+            this.loadNpcTags();
+        }
+        return this.taggedNpcNames.has(name);
+    }
+
+    private toggleNpcTag(name: string): void {
+        if (!this.taggedNpcsLoaded) {
+            this.loadNpcTags();
+        }
+        if (this.taggedNpcNames.has(name)) {
+            this.taggedNpcNames.delete(name);
+        } else {
+            this.taggedNpcNames.add(name);
+        }
+        this.saveNpcTags();
+    }
+
+    // Light-blue true-tile box over every visible npc whose NAME is tagged. Tags are by name, so this works
+    // in the overworld AND instances natively (we read the live npc's scene tile, no coord mapping needed).
+    private drawTaggedNpcs(): void {
+        if (!this.taggedNpcsLoaded) {
+            this.loadNpcTags();
+        }
+        if (this.taggedNpcNames.size === 0) {
+            return;
+        }
+        for (let i: number = 0; i < this.npcCount; i++) {
+            const npc: ClientNpc | null = this.npc[this.npcIds[i]];
+            if (!npc || !npc.type || npc.type.name === null || !this.taggedNpcNames.has(npc.type.name)) {
+                continue;
+            }
+            this.drawTrueTileBox(npc.routeX[0], npc.routeZ[0], npc.type.size, 0x33ccff);
+        }
+    }
+
+    // Outline the size x size footprint at scene tile (tileX,tileZ) (SW corner). A size-4 npc -> 4x4 box.
+    private drawTrueTileBox(tileX: number, tileZ: number, size: number, colour: number): void {
+        if (size < 1) {
+            size = 1;
+        }
+        if (tileX < 0 || tileZ < 0 || tileX >= 104 || tileZ >= 104) {
+            return;
+        }
+        const x0: number = tileX << 7;
+        const z0: number = tileZ << 7;
+        const x1: number = (tileX + size) << 7;
+        const z1: number = (tileZ + size) << 7;
+        this.getOverlayPos(x0, z0, 0);
+        const sx0: number = this.projectX;
+        const sy0: number = this.projectY;
+        this.getOverlayPos(x1, z0, 0);
+        const sx1: number = this.projectX;
+        const sy1: number = this.projectY;
+        this.getOverlayPos(x1, z1, 0);
+        const sx2: number = this.projectX;
+        const sy2: number = this.projectY;
+        this.getOverlayPos(x0, z1, 0);
+        const sx3: number = this.projectX;
+        const sy3: number = this.projectY;
+        if (sx0 === -1 || sx1 === -1 || sx2 === -1 || sx3 === -1) {
+            return; // a corner is off-screen / behind the camera
+        }
+        this.drawLine2D(sx0, sy0, sx1, sy1, colour, 256);
+        this.drawLine2D(sx1, sy1, sx2, sy2, colour, 256);
+        this.drawLine2D(sx2, sy2, sx3, sy3, colour, 256);
+        this.drawLine2D(sx3, sy3, sx0, sy0, colour, 256);
     }
 
     private findTileMarker(absX: number, absZ: number, level: number): number {
@@ -10466,6 +10562,13 @@ export class Client extends GameShell {
             this.toggleTileMarkerAtCapture();
         }
 
+        if (action === MiniMenuAction.TAG_NPC) {
+            const npc: ClientNpc | null = this.npc[a]; // a = npc slot index
+            if (npc && npc.type && npc.type.name !== null) {
+                this.toggleNpcTag(npc.type.name);
+            }
+        }
+
         if (action === MiniMenuAction.FRIENDLIST_ADD || action === MiniMenuAction.IGNORELIST_ADD || action === MiniMenuAction.FRIENDLIST_DEL || action === MiniMenuAction.IGNORELIST_DEL) {
             const option: string = this.menuOption[optionId];
             const tag: number = option.indexOf('@whi@');
@@ -10797,6 +10900,17 @@ export class Client extends GameShell {
             this.menuParamB[this.menuNumEntries] = b;
             this.menuParamC[this.menuNumEntries] = c;
             this.menuNumEntries++;
+
+            // Shift+right-click: tag/untag this npc's NAME for true-tile marking (client-only, not sent to server).
+            if (this.shiftHeld && this.menuNumEntries < 400) {
+                const tagged: boolean = npc.name !== null && this.isNpcTagged(npc.name);
+                this.menuOption[this.menuNumEntries] = (tagged ? 'Untag npc @yel@' : 'Tag npc @yel@') + tooltip;
+                this.menuAction[this.menuNumEntries] = MiniMenuAction.TAG_NPC;
+                this.menuParamA[this.menuNumEntries] = a;
+                this.menuParamB[this.menuNumEntries] = b;
+                this.menuParamC[this.menuNumEntries] = c;
+                this.menuNumEntries++;
+            }
         }
     }
 
