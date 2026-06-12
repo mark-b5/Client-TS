@@ -133,7 +133,8 @@ async function applyTerser(script: BunOutput): Promise<boolean> {
                     // HTML UI bridge methods that must remain callable from templates.
                     'applyOverlayUiSettings',
                     'setOverlaySettings',
-                    'applyFKeyBindings'
+                    'applyFKeyBindings',
+                    'setMetronome'
                 ]
             }
         }

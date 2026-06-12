@@ -600,6 +600,8 @@ export class Client extends GameShell {
     private readonly searchParams: URLSearchParams;
     private showLocalTrueTile: boolean = true;
     private showHoveredTrueTile: boolean = true;
+    private metronomeEnabled: boolean = false; // tick metronome: play a synth once per PLAYER_INFO (1/tick)
+    private metronomeSound: number = 356; // synth id for the tick (default 'pick2'; audition live via ::ticksound <id>)
     private showPriorityOutline: boolean = true;
     private hoveredTileAlpha: number = 152;
     // Right-clicked-tile memory: the world tile under the cursor when the right-click menu opened (LOCAL
@@ -729,6 +731,22 @@ export class Client extends GameShell {
             const alpha: number = settings.hoveredTileAlpha | 0;
             this.hoveredTileAlpha = Math.max(0, Math.min(256, alpha));
         }
+    }
+
+    public setMetronome(enabled: boolean): void {
+        this.metronomeEnabled = enabled;
+    }
+
+    // Tick metronome: enqueue the put_down (item-drop) sound. Called once per PLAYER_INFO = once per game tick.
+    private playMetronomeTick(): void {
+        if (!this.waveEnabled || Client.lowMem || this.waveCount >= 50) {
+            return;
+        }
+        const soundId: number = this.metronomeSound;
+        this.waveIds[this.waveCount] = soundId;
+        this.waveLoops[this.waveCount] = 0;
+        this.waveDelay[this.waveCount] = JagFX.delays[soundId];
+        this.waveCount++;
     }
 
     public applyOverlayUiSettings(showLocalTrueTile: boolean, showHoveredTrueTile: boolean, showPriorityOutline: boolean, hoveredTileAlpha: number): void {
@@ -3322,6 +3340,13 @@ export class Client extends GameShell {
                                     this.setTargetedFramerate(desiredFps);
                                 } catch (_e) {
                                     // empty
+                                }
+                            } else if (this.chatInput.startsWith('::ticksound ')) {
+                                // audition metronome tick sounds live: ::ticksound <synth id>
+                                const id: number = parseInt(this.chatInput.substring(12));
+                                if (!isNaN(id)) {
+                                    this.metronomeSound = id;
+                                    this.addChat(0, 'Metronome sound -> ' + id, '');
                                 }
                             } else if (this.chatInput.startsWith('::')) {
                                 this.out.p1Enc(ClientProt.CLIENT_CHEAT);
@@ -7670,6 +7695,9 @@ export class Client extends GameShell {
             if (this.ptype === ServerProt.PLAYER_INFO) {
                 this.getPlayerPos(this.in, this.psize);
                 this.awaitingPlayerInfo = false;
+                if (this.metronomeEnabled) {
+                    this.playMetronomeTick(); // PLAYER_INFO arrives exactly once per game tick
+                }
 
                 this.ptype = -1;
                 return true;
