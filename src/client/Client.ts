@@ -613,6 +613,22 @@ export class Client extends GameShell {
     private tileMarkersLoaded: boolean = false;
     private taggedNpcNames: Set<string> = new Set<string>(); // npc NAMES whose true tile we mark (light blue box)
     private taggedNpcsLoaded: boolean = false;
+
+    // --- XP drops (OSRS-style, client-only) ---
+    private static readonly XPDROP_FLOAT_MS: number = 1700; // lifetime / float duration
+    private static readonly XPDROP_RISE_PX: number = 100; // float distance up (logical px) -> rises near the top
+    private static readonly XPDROP_ROW_H: number = 20; // per-drop vertical footprint -> min non-overlap spacing
+    private static readonly XPDROP_MAX_QUEUE: number = 6; // ~drawable/tick + padding; full => newest dropped
+    private static readonly XPDROP_ANCHOR_X: number = 510; // right edge of the game viewport (x 4..516)
+    private static readonly XPDROP_START_Y: number = 108; // ~30% down the 334-tall viewport (y 4..338)
+    private static readonly XPDROP_FADE_FROM: number = 0.6; // progress (0..1) at which fade-out begins
+    private static readonly XPDROP_ICON_SCALE: number = 0.7;
+    private static readonly XPDROP_COLOUR: number = 0xffffff;
+    private xpDropQueue: { skill: number; amount: number }[] = [];
+    private xpDropsActive: { canvas: HTMLCanvasElement; w: number; spawn: number }[] = [];
+    private xpDropLastRelease: number = 0;
+    private statSynced: boolean[] = []; // per-skill: first UPDATE_STAT = login sync (suppressed), then armed
+    private xpDropIcons: (Pix8 | null)[] = []; // skill index -> staticons sprite
     private fKeyToSideIcon: Int32Array = new Int32Array(10);
 
     // ----
@@ -1161,6 +1177,17 @@ export class Client extends GameShell {
                 this.orbIconHitpoints = Pix8.depack(media, 'staticons', 6);
                 this.orbIconPrayer = Pix8.depack(media, 'staticons', 4);
                 this.orbIconAgility = Pix8.depack(media, 'staticons', 7);
+                // XP-drop skill icons: Skill enum index -> staticons sprite (runecraft on staticons2). From
+                // stats.if. Isolated try so a missing icon here can't null the orb icons loaded above.
+                try {
+                    const xpIconMap: number[] = [0, 2, 1, 6, 3, 4, 5, 15, 17, 11, 14, 16, 10, 13, 12, 8, 7, 9];
+                    for (let s: number = 0; s < xpIconMap.length; s++) {
+                        this.xpDropIcons[s] = Pix8.depack(media, 'staticons', xpIconMap[s]);
+                    }
+                    this.xpDropIcons[20] = Pix8.depack(media, 'staticons2', 0); // runecraft
+                } catch (_e2) {
+                    // some skill icons unavailable -> those drops just render without an icon
+                }
             } catch (_e) {
                 this.orbIconHitpoints = null;
                 this.orbIconPrayer = null;
@@ -2616,6 +2643,7 @@ export class Client extends GameShell {
 
         this.stream = null;
         this.ingame = false;
+        this.clearXpDrops();
         this.loginscreen = 0;
         this.loginUser = '';
         this.loginPass = '';
@@ -2662,6 +2690,7 @@ export class Client extends GameShell {
         const oldStream = this.stream;
 
         this.ingame = false;
+        this.clearXpDrops();
         await this.login(this.loginUser, this.loginPass, true);
         if (!this.ingame) {
             await this.logout();
@@ -4331,6 +4360,7 @@ export class Client extends GameShell {
         // -- so the low-hanging Special orb isn't clipped by it. Still every frame, over the live minimap.
         if (this.sceneState === 2) {
             this.drawStatusOrbs();
+            this.drawXpDrops();
         }
 
         if (this.redrawChatMode) {
@@ -7890,6 +7920,15 @@ export class Client extends GameShell {
                 const stat: number = this.in.g1();
                 const xp: number = this.in.g4();
                 const level: number = this.in.g1();
+
+                // XP drop: enqueue on a real gain; the FIRST UPDATE_STAT per skill is the login sync (suppressed).
+                if (this.statSynced[stat]) {
+                    if (xp > this.statXP[stat]) {
+                        this.enqueueXpDrop(stat, xp - this.statXP[stat]);
+                    }
+                } else {
+                    this.statSynced[stat] = true;
+                }
 
                 this.statXP[stat] = xp;
                 this.statEffectiveLevel[stat] = level;
@@ -12766,6 +12805,191 @@ export class Client extends GameShell {
         Pix2D.fillRect(97, 78, 3, 3, Colour.WHITE);
 
         this.areaGame?.setPixels();
+    }
+
+    private enqueueXpDrop(skill: number, amount: number): void {
+        // Sized to drain within a tick, so normally near-empty; if full, drop the newest (no eviction).
+        if (amount <= 0 || this.xpDropQueue.length >= Client.XPDROP_MAX_QUEUE) {
+            return;
+        }
+        this.xpDropQueue.push({ skill, amount });
+    }
+
+    private clearXpDrops(): void {
+        this.xpDropQueue.length = 0;
+        this.xpDropsActive.length = 0;
+        this.statSynced = []; // re-sync (suppress the burst) on next login
+    }
+
+    // OSRS-style XP drops: release queued drops one at a time at the minimum non-overlap stagger (the next is
+    // released once the previous has risen one row-height, so the gap then stays constant), float them up the
+    // right edge of the game viewport and fade out. Drawn to canvas2d like the orbs (RENDER_SCALE'd context).
+    private drawXpDrops(): void {
+        const now: number = performance.now();
+        const stagger: number = (Client.XPDROP_FLOAT_MS * Client.XPDROP_ROW_H) / Client.XPDROP_RISE_PX;
+
+        if (this.xpDropQueue.length > 0 && now - this.xpDropLastRelease >= stagger) {
+            const d = this.xpDropQueue.shift();
+            if (d) {
+                const built = this.buildXpDropCanvas(d.skill, d.amount);
+                if (built) {
+                    this.xpDropsActive.push({ canvas: built.canvas, w: built.w, spawn: now });
+                }
+                this.xpDropLastRelease = now;
+            }
+        }
+
+        if (this.xpDropsActive.length === 0) {
+            return;
+        }
+
+        canvas2d.save();
+        canvas2d.scale(Client.RENDER_SCALE, Client.RENDER_SCALE);
+        canvas2d.imageSmoothingEnabled = false;
+        canvas2d.beginPath();
+        canvas2d.rect(4, 4, 512, 334); // clip to the game viewport (no bleed into UI panels)
+        canvas2d.clip();
+
+        for (let i: number = this.xpDropsActive.length - 1; i >= 0; i--) {
+            const drop = this.xpDropsActive[i];
+            const progress: number = (now - drop.spawn) / Client.XPDROP_FLOAT_MS;
+            if (progress >= 1) {
+                this.xpDropsActive.splice(i, 1);
+                continue;
+            }
+            const y: number = Client.XPDROP_START_Y - progress * Client.XPDROP_RISE_PX;
+            const x: number = Client.XPDROP_ANCHOR_X - drop.w; // right-aligned at the anchor
+            let alpha: number = 1;
+            if (progress > Client.XPDROP_FADE_FROM) {
+                alpha = 1 - (progress - Client.XPDROP_FADE_FROM) / (1 - Client.XPDROP_FADE_FROM);
+            }
+            canvas2d.globalAlpha = alpha < 0 ? 0 : alpha;
+            canvas2d.drawImage(drop.canvas, x, y);
+        }
+
+        canvas2d.globalAlpha = 1;
+        canvas2d.restore();
+    }
+
+    // Pre-render one drop (skill icon + "+amount") to an offscreen canvas once; drawXpDrops animates it.
+    private buildXpDropCanvas(skill: number, amount: number): { canvas: HTMLCanvasElement; w: number } | null {
+        const numCanvas: HTMLCanvasElement | null = this.renderXpNumber('+' + amount.toLocaleString('en-US'), Client.XPDROP_COLOUR);
+        if (!numCanvas) {
+            return null;
+        }
+        const icon: Pix8 | null = this.xpDropIcons[skill] ?? null;
+        const iconW: number = icon ? Math.max(1, Math.round(icon.wi * Client.XPDROP_ICON_SCALE)) : 0;
+        const iconH: number = icon ? Math.max(1, Math.round(icon.hi * Client.XPDROP_ICON_SCALE)) : 0;
+        const gap: number = icon ? 2 : 0;
+        const h: number = Math.max(iconH, numCanvas.height);
+        const w: number = iconW + gap + numCanvas.width;
+
+        const canvas: HTMLCanvasElement = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx: CanvasRenderingContext2D | null = canvas.getContext('2d');
+        if (!ctx) {
+            return null;
+        }
+        if (icon) {
+            const iconCanvas: HTMLCanvasElement | null = this.rasterizePix8(icon);
+            if (iconCanvas) {
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(iconCanvas, 0, ((h - iconH) / 2) | 0, iconW, iconH);
+            }
+        }
+        ctx.drawImage(numCanvas, iconW + gap, ((h - numCanvas.height) / 2) | 0);
+        return { canvas, w };
+    }
+
+    // p11 number with a +1,+1 black drop-shadow (same technique as the orb value: white-on-black -> alpha).
+    private renderXpNumber(text: string, colour: number): HTMLCanvasElement | null {
+        const font = this.p11;
+        if (!font) {
+            return null;
+        }
+        const w: number = font.stringWid(text) + 1; // +1 for the shadow
+        const h: number = font.height + 1;
+        if (w <= 1 || h <= 1) {
+            return null;
+        }
+        const scratch: Int32Array = new Int32Array(w * h);
+        const savedPixels: Int32Array = Pix2D.pixels;
+        const savedW: number = Pix2D.width;
+        const savedH: number = Pix2D.height;
+        const cMinX: number = Pix2D.clipMinX;
+        const cMinY: number = Pix2D.clipMinY;
+        const cMaxX: number = Pix2D.clipMaxX;
+        const cMaxY: number = Pix2D.clipMaxY;
+        Pix2D.setPixels(scratch, w, h);
+        font.drawString(text, 0, font.height, 0xffffff); // white -> per-pixel brightness = glyph alpha
+        Pix2D.setPixels(savedPixels, savedW, savedH);
+        Pix2D.setClipping(cMinX, cMinY, cMaxX, cMaxY);
+
+        const canvas: HTMLCanvasElement = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx: CanvasRenderingContext2D | null = canvas.getContext('2d');
+        if (!ctx) {
+            return null;
+        }
+        const img: ImageData = ctx.createImageData(w, h);
+        const buf: Uint32Array = new Uint32Array(img.data.buffer);
+        const cr: number = (colour >> 16) & 0xff;
+        const cg: number = (colour >> 8) & 0xff;
+        const cb: number = colour & 0xff;
+        for (let y: number = 0; y < h; y++) {
+            for (let x: number = 0; x < w; x++) {
+                const va: number = scratch[y * w + x] & 0xff; // glyph alpha
+                const sa: number = x >= 1 && y >= 1 ? scratch[(y - 1) * w + (x - 1)] & 0xff : 0; // shadow, +1,+1
+                let a: number;
+                let r: number;
+                let g: number;
+                let b: number;
+                if (va >= sa) {
+                    a = va;
+                    r = cr;
+                    g = cg;
+                    b = cb;
+                } else {
+                    a = sa;
+                    r = 0;
+                    g = 0;
+                    b = 0;
+                }
+                buf[y * w + x] = ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+        return canvas;
+    }
+
+    private rasterizePix8(icon: Pix8): HTMLCanvasElement | null {
+        const w: number = icon.wi;
+        const h: number = icon.hi;
+        if (w <= 0 || h <= 0) {
+            return null;
+        }
+        const canvas: HTMLCanvasElement = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx: CanvasRenderingContext2D | null = canvas.getContext('2d');
+        if (!ctx) {
+            return null;
+        }
+        const img: ImageData = ctx.createImageData(w, h);
+        const buf: Uint32Array = new Uint32Array(img.data.buffer);
+        for (let i: number = 0; i < w * h; i++) {
+            const pal: number = icon.data[i] & 0xff;
+            if (pal === 0) {
+                buf[i] = 0; // palette 0 = transparent
+                continue;
+            }
+            const rgb: number = icon.bpal[pal];
+            buf[i] = (0xff000000 | ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb >> 16) & 0xff)) >>> 0;
+        }
+        ctx.putImageData(img, 0, 0);
+        return canvas;
     }
 
     private drawStatusOrbs(): void {
