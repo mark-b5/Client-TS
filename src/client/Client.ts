@@ -4998,6 +4998,11 @@ export class Client extends GameShell {
                     if (w > 30) {
                         w = 30;
                     }
+                    // Always show at least 1px of green while any hp remains -- round a sub-1/30 sliver
+                    // up to 1/30 instead of flooring it to 0 (which reads as dead).
+                    if (w === 0 && entity.health > 0) {
+                        w = 1;
+                    }
                     Pix2D.fillRect(this.projectX - 15, this.projectY - 3, w, 5, Colour.GREEN);
                     Pix2D.fillRect(this.projectX - 15 + w, this.projectY - 3, 30 - w, 5, Colour.RED);
                 }
@@ -7158,6 +7163,136 @@ export class Client extends GameShell {
         this.minimapFlagZ = flagZ === -1 ? 0 : flagZ;
     }
 
+    // Cosmetic approach-tile flag for op-clicking a sized npc under serverside pathing. Mirrors
+    // updateServersideFlag's BFS, but "arrival" is the nearest reachable tile ADJACENT to the npc's
+    // size x size footprint (reusing the loc adjacency calc, testLoc) -- so the dest flag lands where
+    // the player will stand to interact, not on the footprint's SW tile (which reads as offset/wrong
+    // for large npcs). The footprint tiles are themselves walkable client-side (no npc collision is
+    // added), so we reject tiles INSIDE the footprint and take the first edge tile BFS reaches. Purely
+    // visual: the real move already went to the server. Flag cleared (0,0) if nothing reachable.
+    private updateNpcApproachFlag(srcX: number, srcZ: number, dstX: number, dstZ: number, npcSize: number): void {
+        const collisionMap: CollisionMap | null = this.collision[this.minusedlevel];
+        if (!collisionMap) {
+            return;
+        }
+
+        const sceneSize: number = BuildArea.SIZE;
+        for (let x: number = 0; x < sceneSize; x++) {
+            for (let z: number = 0; z < sceneSize; z++) {
+                const index: number = CollisionMap.index(x, z);
+                this.dirMap[index] = 0;
+                this.distMap[index] = 99999999;
+            }
+        }
+
+        this.dirMap[CollisionMap.index(srcX, srcZ)] = 99;
+        this.distMap[CollisionMap.index(srcX, srcZ)] = 0;
+
+        const bufferSize: number = this.routeX.length;
+        let read: number = 0;
+        let write: number = 0;
+        this.routeX[write] = srcX;
+        this.routeZ[write++] = srcZ;
+
+        const flags: Int32Array = collisionMap.flags;
+        const maxX: number = dstX + npcSize - 1;
+        const maxZ: number = dstZ + npcSize - 1;
+        let flagX: number = -1;
+        let flagZ: number = -1;
+
+        while (read !== write) {
+            const x: number = this.routeX[read];
+            const z: number = this.routeZ[read];
+            read = (read + 1) % bufferSize;
+
+            // Arrived: tile is adjacent to the footprint but NOT inside it (footprint tiles are walkable
+            // client-side, so skip them to land on a real standing tile). BFS order -> nearest edge tile.
+            const inside: boolean = x >= dstX && x <= maxX && z >= dstZ && z <= maxZ;
+            if (!inside && collisionMap.testLoc(x, z, dstX, dstZ, npcSize, npcSize, 0)) {
+                flagX = x;
+                flagZ = z;
+                break;
+            }
+
+            const nextCost: number = this.distMap[CollisionMap.index(x, z)] + 1;
+
+            let index: number = CollisionMap.index(x - 1, z);
+            if (x > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 2;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z);
+            if (x < sceneSize - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 8;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x, z - 1);
+            if (z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 1;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x, z + 1);
+            if (z < sceneSize - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 4;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x - 1, z - 1);
+            if (x > 0 && z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_NE) === 0 && (flags[CollisionMap.index(x - 1, z)] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z - 1)] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 3;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z - 1);
+            if (x < sceneSize - 1 && z > 0 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_NW) === 0 && (flags[CollisionMap.index(x + 1, z)] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z - 1)] & CollisionFlag.PL_WALK_N) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z - 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 9;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x - 1, z + 1);
+            if (x > 0 && z < sceneSize - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_SE) === 0 && (flags[CollisionMap.index(x - 1, z)] & CollisionFlag.PL_WALK_E) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z + 1)] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x - 1;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 6;
+                this.distMap[index] = nextCost;
+            }
+
+            index = CollisionMap.index(x + 1, z + 1);
+            if (x < sceneSize - 1 && z < sceneSize - 1 && this.dirMap[index] === 0 && (flags[index] & CollisionFlag.PL_WALK_SW) === 0 && (flags[CollisionMap.index(x + 1, z)] & CollisionFlag.PL_WALK_W) === CollisionFlag._OPEN && (flags[CollisionMap.index(x, z + 1)] & CollisionFlag.PL_WALK_S) === CollisionFlag._OPEN) {
+                this.routeX[write] = x + 1;
+                this.routeZ[write] = z + 1;
+                write = (write + 1) % bufferSize;
+                this.dirMap[index] = 12;
+                this.distMap[index] = nextCost;
+            }
+        }
+
+        this.minimapFlagX = flagX === -1 ? 0 : flagX;
+        this.minimapFlagZ = flagZ === -1 ? 0 : flagZ;
+    }
+
     private async tcpIn(): Promise<boolean> {
         if (!this.stream) {
             return false;
@@ -7476,6 +7611,19 @@ export class Client extends GameShell {
                 const com: IfType = IfType.list[comId];
                 com.x = x;
                 com.y = y;
+
+                this.ptype = -1;
+                return true;
+            }
+
+            if (this.ptype === ServerProt.IF_SETSIZE) {
+                const comId: number = this.in.g2();
+                const width: number = this.in.g2();
+                const height: number = this.in.g2();
+
+                const com: IfType = IfType.list[comId];
+                com.width = width;
+                com.height = height;
 
                 this.ptype = -1;
                 return true;
@@ -10091,6 +10239,10 @@ export class Client extends GameShell {
             const npc: ClientNpc | null = this.npc[a];
             if (npc && this.localPlayer) {
                 this.tryMove(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], false, 1, 1, 0, 0, 0, 2);
+                // Reposition the cosmetic dest flag onto the tile the player will actually stand on to
+                // interact (adjacent to the npc's full footprint), instead of the npc's SW tile that
+                // tryMove plants under serverside pathing -- visibly wrong for large npcs.
+                this.updateNpcApproachFlag(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], npc.size);
 
                 this.crossX = this.mouseClickX;
                 this.crossY = this.mouseClickY;
@@ -10140,6 +10292,10 @@ export class Client extends GameShell {
             const npc: ClientNpc | null = this.npc[a];
             if (npc && this.localPlayer) {
                 this.tryMove(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], false, 1, 1, 0, 0, 0, 2);
+                // Reposition the cosmetic dest flag onto the tile the player will actually stand on to
+                // interact (adjacent to the npc's full footprint), instead of the npc's SW tile that
+                // tryMove plants under serverside pathing -- visibly wrong for large npcs.
+                this.updateNpcApproachFlag(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], npc.size);
 
                 this.crossX = this.mouseClickX;
                 this.crossY = this.mouseClickY;
@@ -10157,6 +10313,10 @@ export class Client extends GameShell {
 
             if (npc && this.localPlayer) {
                 this.tryMove(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], false, 1, 1, 0, 0, 0, 2);
+                // Reposition the cosmetic dest flag onto the tile the player will actually stand on to
+                // interact (adjacent to the npc's full footprint), instead of the npc's SW tile that
+                // tryMove plants under serverside pathing -- visibly wrong for large npcs.
+                this.updateNpcApproachFlag(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], npc.routeX[0], npc.routeZ[0], npc.size);
 
                 this.crossX = this.mouseClickX;
                 this.crossY = this.mouseClickY;
@@ -10982,7 +11142,7 @@ export class Client extends GameShell {
             // Shift+right-click: tag/untag this npc's NAME for true-tile marking (client-only, not sent to server).
             if (this.shiftHeld && this.menuNumEntries < 400) {
                 const tagged: boolean = npc.name !== null && this.isNpcTagged(npc.name);
-                this.menuOption[this.menuNumEntries] = (tagged ? 'Untag npc @yel@' : 'Tag npc @yel@') + tooltip;
+                this.menuOption[this.menuNumEntries] = (tagged ? 'Untag @yel@' : 'Tag @yel@') + tooltip;
                 this.menuAction[this.menuNumEntries] = MiniMenuAction.TAG_NPC;
                 this.menuParamA[this.menuNumEntries] = a;
                 this.menuParamB[this.menuNumEntries] = b;

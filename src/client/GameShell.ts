@@ -277,8 +277,13 @@ export default abstract class GameShell {
     }
 
     protected async drawProgress(message: string, progress: number): Promise<void> {
-        const width: number = this.sWid;
-        const height: number = this.sHei;
+        // The whole client composites at displayScale (currently 9), and canvas2d targets the full backing
+        // canvas -- so draw against the device-pixel dimensions and scale every element by displayScale,
+        // otherwise the bar/text render tiny in the top-left logical (765x503) region. s=1 -> original.
+        const s: number = PixMap.displayScale;
+        const width: number = canvas.width;
+        const height: number = canvas.height;
+        const cx: number = (width / 2) | 0;
 
         if (this.fullredraw) {
             canvas2d.fillStyle = 'black';
@@ -286,23 +291,23 @@ export default abstract class GameShell {
             this.fullredraw = false;
         }
 
-        const y: number = height / 2 - 18;
+        const y: number = (height / 2 - 18 * s) | 0;
 
         // draw full progress bar
         canvas2d.strokeStyle = 'rgb(140, 17, 17)';
-        canvas2d.strokeRect(((width / 2) | 0) - 152, y, 304, 34);
+        canvas2d.strokeRect(cx - 152 * s, y, 304 * s, 34 * s);
         canvas2d.fillStyle = 'rgb(140, 17, 17)';
-        canvas2d.fillRect(((width / 2) | 0) - 150, y + 2, progress * 3, 30);
+        canvas2d.fillRect(cx - 150 * s, y + 2 * s, progress * 3 * s, 30 * s);
 
         // cover up progress bar
         canvas2d.fillStyle = 'black';
-        canvas2d.fillRect(((width / 2) | 0) - 150 + progress * 3, y + 2, 300 - progress * 3, 30);
+        canvas2d.fillRect(cx - 150 * s + progress * 3 * s, y + 2 * s, 300 * s - progress * 3 * s, 30 * s);
 
         // draw text
-        canvas2d.font = 'bold 13px helvetica, sans-serif';
+        canvas2d.font = 'bold ' + 13 * s + 'px helvetica, sans-serif';
         canvas2d.textAlign = 'center';
         canvas2d.fillStyle = 'white';
-        canvas2d.fillText(message, (width / 2) | 0, y + 22);
+        canvas2d.fillText(message, cx, y + 22 * s);
 
         await sleep(5); // return a slice of time to the main loop so it can update the progress bar
     }

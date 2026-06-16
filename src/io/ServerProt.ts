@@ -19,6 +19,7 @@ export const enum ServerProt {
     IF_SETTEXT = 44,
     IF_SETNPCHEAD = 142,
     IF_SETPOSITION = 77,
+    IF_SETSIZE = 100,
     IF_SETSCROLLPOS = 54,
 
     // tutorial area
@@ -108,7 +109,7 @@ export const ServerProtSizes = [
     0, 0, 0, 0, 0, 0, 0, 6, 0, 0,
     0, 5, 0, 1, 0, 6, 0, 0, 0, 2,
     1, 10, 0, 0, 0, 7, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 6, -2, 15, 0, 0,
+    6, 0, 0, 0, 0, 6, -2, 15, 0, 0,
     0, 0, 0, 0, 3, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 6, 0, 0, 0, 4,
     2, 0, 0, 3, 4, 0, 0, 0, 4, 0,
